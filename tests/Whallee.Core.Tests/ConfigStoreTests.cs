@@ -53,6 +53,7 @@ public class ConfigStoreTests : IDisposable
         Assert.True(loaded.StartWithWindows);
         var display = Assert.Single(loaded.Displays);
         Assert.Equal(@"\\?\DISPLAY#ABC#1", display.DeviceId);
+        Assert.Equal(@"\\.\DISPLAY6", display.DeviceName);
         Assert.Equal(DisplayMode.Pinned, display.Mode);
         Assert.Equal("nature-1.mp4", display.PinnedPath);
     }
