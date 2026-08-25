@@ -56,4 +56,37 @@ public class MpvOptionsTests
         Assert.Contains("--keepaspect=yes", Build(ScalingMode.Fit));
         Assert.Contains("--keepaspect=yes", Build(ScalingMode.FillCrop));
     }
+
+    [Fact]
+    public void AlwaysIncludesEveryInvariantFlag()
+    {
+        // These flags must appear regardless of scaling mode, host window, or path.
+        // Several are load-bearing: --no-config keeps mpv from reading the user's own
+        // mpv.conf, and --media-controls=no keeps the wallpaper from capturing media keys.
+        string[] invariant =
+        {
+            "--loop-file=inf",
+            "--keep-open=yes",
+            "--volume=0",
+            "--no-audio",
+            "--no-osc",
+            "--no-osd-bar",
+            "--no-input-default-bindings",
+            "--input-vo-keyboard=no",
+            "--no-window-dragging",
+            "--cursor-autohide=no",
+            "--stop-screensaver=no",
+            "--media-controls=no",
+            "--hwdec=auto-safe",
+            "--no-config",
+            "--msg-level=all=info"
+        };
+
+        foreach (var mode in new[] { ScalingMode.Fill, ScalingMode.Fit, ScalingMode.FillCrop })
+        {
+            var args = Build(mode);
+            foreach (var flag in invariant)
+                Assert.Contains(flag, args);
+        }
+    }
 }
