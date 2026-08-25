@@ -66,12 +66,21 @@ public sealed class MpvHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
         try
         {
             if (!_process.HasExited)
                 _process.Kill(entireProcessTree: true);
         }
-        catch (InvalidOperationException) { /* already gone */ }
-        _process.Dispose();
+        catch (InvalidOperationException) { /* already exited between the check and the kill */ }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // Kill was refused. Not fatal: the job object owns this process and the OS
+            // terminates it when the job handle closes, so it cannot outlive Whallee.
+        }
+        finally
+        {
+            _process.Dispose();
+        }
     }
 }
