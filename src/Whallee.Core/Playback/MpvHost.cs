@@ -9,7 +9,7 @@ public sealed class MpvHost : IDisposable
     /// With --wid, mpv renders into a window we already own and never creates one of its own,
     /// so "wait for the child window" is not a usable health check. Staying alive is.
     /// </summary>
-    private static readonly TimeSpan LivenessWindow = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan LivenessWindow = TimeSpan.FromSeconds(1);
 
     private readonly Process _process;
     private bool _disposed;
