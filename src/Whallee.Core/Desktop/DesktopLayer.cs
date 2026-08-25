@@ -34,8 +34,14 @@ public static class DesktopLayer
         if (raised)
         {
             var workerW = NativeMethods.FindWindowExW(progman, 0, "WorkerW", null);
+            // Direct children of Progman in this layout - unlike the classic branch, where
+            // WorkerW is a top-level sibling of the DefView owner.
             var defView = NativeMethods.FindWindowExW(progman, 0, "SHELLDLL_DefView", null);
-            return workerW == 0
+
+            // Both handles are required. Task 8 passes ShellDefView as the SetWindowPos
+            // insert-after target, and 0 there is HWND_TOP, not "not found" - propagating a
+            // zero would silently place the wallpaper in front of the desktop icons.
+            return workerW == 0 || defView == 0
                 ? null
                 : new DesktopLayerInfo(DesktopLayerMode.RaisedDesktop, progman, workerW, defView);
         }
