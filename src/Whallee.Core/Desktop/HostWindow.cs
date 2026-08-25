@@ -47,13 +47,18 @@ public sealed class HostWindow : IDisposable
     {
         if (layer.Mode == DesktopLayerMode.RaisedDesktop)
         {
+            // GetWindowLongPtr/SetWindowLongPtr are intentionally left unchecked: both
+            // legitimately return 0 when the previous value was 0, so telling that apart
+            // from failure requires clearing the last error first, which is out of scope here.
             var style = (long)NativeMethods.GetWindowLongPtr(handle, GWL_STYLE);
             NativeMethods.SetWindowLongPtr(handle, GWL_STYLE, (nint)((style & ~WS_POPUP) | WS_CHILD));
 
             var exStyle = (long)NativeMethods.GetWindowLongPtr(handle, GWL_EXSTYLE);
             NativeMethods.SetWindowLongPtr(handle, GWL_EXSTYLE, (nint)(exStyle | WS_EX_LAYERED));
 
-            NativeMethods.SetParent(handle, layer.Progman);
+            if (NativeMethods.SetParent(handle, layer.Progman) == 0)
+                throw new InvalidOperationException(
+                    $"SetParent into Progman failed for {display.DeviceName}: {Marshal.GetLastWin32Error()}");
 
             // Sit immediately behind the icon layer.
             NativeMethods.SetWindowPos(
@@ -63,15 +68,30 @@ public sealed class HostWindow : IDisposable
         }
         else
         {
-            NativeMethods.SetParent(handle, layer.WorkerW);
+            // SetParent does not change the WS_CHILD/WS_POPUP bit, and SetWindowPos reads
+            // that bit to decide whether x/y are parent-relative or screen-relative. Without
+            // this the parent-relative coordinates below are misread as screen coordinates.
+            var style = (long)NativeMethods.GetWindowLongPtr(handle, GWL_STYLE);
+            NativeMethods.SetWindowLongPtr(handle, GWL_STYLE, (nint)((style & ~WS_POPUP) | WS_CHILD));
+
+            if (NativeMethods.SetParent(handle, layer.WorkerW) == 0)
+                throw new InvalidOperationException(
+                    $"SetParent into WorkerW failed for {display.DeviceName}: {Marshal.GetLastWin32Error()}");
         }
 
         // After reparenting, coordinates are relative to the new parent, which spans the whole
         // virtual desktop. Re-apply the display's position in that space.
         var originX = display.X - VirtualScreenOrigin().x;
         var originY = display.Y - VirtualScreenOrigin().y;
-        NativeMethods.SetWindowPos(
-            handle, 0, originX, originY, display.Width, display.Height, SWP_NOACTIVATE);
+        // SWP_NOZORDER: the raised branch already set its z-order deliberately above, and in
+        // Classic each display gets one non-overlapping window, so sibling ordering doesn't matter.
+        if (!NativeMethods.SetWindowPos(
+                handle, 0, originX, originY, display.Width, display.Height,
+                SWP_NOACTIVATE | SWP_NOZORDER))
+        {
+            throw new InvalidOperationException(
+                $"SetWindowPos failed for {display.DeviceName}: {Marshal.GetLastWin32Error()}");
+        }
     }
 
     /// <summary>Top-left of the virtual desktop; DISPLAY1 sits at a negative Y on this machine.</summary>
