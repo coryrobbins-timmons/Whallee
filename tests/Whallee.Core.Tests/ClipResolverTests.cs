@@ -22,10 +22,17 @@ public class ClipResolverTests
     [Fact]
     public void Pinned_MissingFile_FallsBackToAnotherClip()
     {
-        var resolver = ResolverOver(@"C:\clips\a.mp4");
+        var files = new[] { @"C:\clips\a.mp4", @"C:\clips\b.mp4", @"C:\clips\c.mp4" };
+        var random = new LastIndexRandom();
+        var resolver = new ClipResolver(_ => files, random);
         var assignment = new DisplayAssignment { Mode = DisplayMode.Pinned, PinnedPath = "gone.mp4" };
 
-        Assert.Equal(@"C:\clips\a.mp4", resolver.Resolve(assignment, Library));
+        var result = resolver.Resolve(assignment, Library);
+
+        // Proves the fallback goes through the injected Random over the whole candidate
+        // list, rather than returning candidates[0] or the pinned path.
+        Assert.Equal(@"C:\clips\c.mp4", result);
+        Assert.Equal(3, random.RequestedMax);
     }
 
     [Fact]
@@ -57,5 +64,17 @@ public class ClipResolverTests
         var assignment = new DisplayAssignment { Mode = DisplayMode.Shuffle };
 
         Assert.Equal(first.Resolve(assignment, Library), second.Resolve(assignment, Library));
+    }
+
+    /// <summary>Forces selection of the last candidate, and records the range it was asked for.</summary>
+    private sealed class LastIndexRandom : Random
+    {
+        public int? RequestedMax { get; private set; }
+
+        public override int Next(int maxValue)
+        {
+            RequestedMax = maxValue;
+            return maxValue - 1;
+        }
     }
 }
