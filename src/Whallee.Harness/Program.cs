@@ -95,6 +95,18 @@ switch (args[0])
         Console.WriteLine($"config written to {configPath}");
         Console.WriteLine("running — press Enter to stop");
 
+        using var watcher = new ShellWatcher(
+            onShellRestarted: () =>
+            {
+                Console.WriteLine("explorer restarted — re-attaching");
+                engine.Restart();
+            },
+            onDisplaysChanged: () =>
+            {
+                Console.WriteLine("displays changed — re-attaching");
+                engine.Restart();
+            });
+
         // AMENDED 2026-08-25: must pump, not Console.ReadLine(). This thread owns the host
         // windows, and SetParent attached its input queue to Explorer's desktop thread — a
         // thread that stops pumping freezes the user's desktop. See Task 13 Step 3.

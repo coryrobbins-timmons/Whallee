@@ -96,6 +96,32 @@ public sealed class WallpaperEngine : IDisposable
         _hosts.Clear();
     }
 
+    private bool _restarting;
+
+    /// <summary>Tear everything down and re-attach. Used after Explorer restarts or displays change.</summary>
+    public void Restart()
+    {
+        // AMENDED 2026-08-25: re-entrancy guard. Restart() PUMPS MESSAGES while it runs, because
+        // MpvHost's liveness wait does - so the watcher's WndProc can be re-entered mid-Restart,
+        // and WM_DISPLAYCHANGE in particular arrives in bursts with no crash-loop guard of its
+        // own. A nested Restart() would have the inner StopAll() dispose host windows the outer
+        // Start() is still looping over, leaving mixed generations and colliding pipe names.
+        // Drop the re-entrant call rather than queueing it: the in-flight Restart() is already
+        // rebuilding from current state. A plain bool is sufficient - every caller is the pump
+        // thread, so this is single-threaded by construction.
+        if (_restarting) return;
+        _restarting = true;
+        try
+        {
+            StopAll();
+            Start();
+        }
+        finally
+        {
+            _restarting = false;
+        }
+    }
+
     public void Dispose()
     {
         StopAll();
