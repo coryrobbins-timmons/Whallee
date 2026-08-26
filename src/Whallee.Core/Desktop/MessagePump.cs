@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Whallee.Core.Interop;
 using static Whallee.Core.Interop.NativeConstants;
@@ -49,6 +50,50 @@ public static class MessagePump
 
             NativeMethods.TranslateMessage(ref message);
             NativeMethods.DispatchMessageW(ref message);
+        }
+    }
+
+    /// <summary>
+    /// A drop-in replacement for <c>Process.WaitForExit(int)</c> for any caller that may own host
+    /// windows: waits up to <paramref name="timeout"/> for <paramref name="process"/> to exit,
+    /// pumping the calling thread's message queue while it waits. Returns true if the process
+    /// exited within the window, false on timeout.
+    /// </summary>
+    public static bool WaitForExit(Process process, TimeSpan timeout)
+    {
+        var handles = new[] { process.Handle };
+        var deadline = DateTime.UtcNow + timeout;
+
+        while (true)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            var remainingMs = remaining <= TimeSpan.Zero
+                ? 0u
+                : (uint)Math.Min(remaining.TotalMilliseconds, int.MaxValue);
+
+            var waitResult = NativeMethods.MsgWaitForMultipleObjectsEx(
+                1, handles, remainingMs, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+
+            switch (waitResult)
+            {
+                case 0: // WAIT_OBJECT_0: the process handle is signaled
+                    return true;
+
+                case 1: // WAIT_OBJECT_0 + 1: new input is queued - drain it, then re-wait
+                    while (NativeMethods.PeekMessageW(out var message, 0, 0, 0, PM_REMOVE))
+                    {
+                        NativeMethods.TranslateMessage(ref message);
+                        NativeMethods.DispatchMessageW(ref message);
+                    }
+                    continue;
+
+                case WAIT_TIMEOUT:
+                    return false;
+
+                default: // WAIT_FAILED and anything else unexpected
+                    throw new InvalidOperationException(
+                        $"MsgWaitForMultipleObjectsEx failed: {Marshal.GetLastWin32Error()}");
+            }
         }
     }
 }

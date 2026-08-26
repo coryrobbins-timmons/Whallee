@@ -24,6 +24,7 @@ public sealed class WallpaperEngine : IDisposable
 
     public void Start()
     {
+        StopAll();
         _errors.Clear();
 
         var layer = DesktopLayer.Locate();

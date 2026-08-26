@@ -151,4 +151,17 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
+
+    // Blocks until either a handle is signaled or a new message arrives in the calling thread's
+    // queue (dwWakeMask), returning WAIT_OBJECT_0 (+n) or WAIT_OBJECT_0 + handleCount for input.
+    // MWMO_INPUTAVAILABLE ensures a message already queued before the call still wakes it.
+    [DllImport(User32, SetLastError = true)]
+    public static extern uint MsgWaitForMultipleObjectsEx(
+        uint handleCount, nint[] handles, uint milliseconds, uint wakeMask, uint flags);
+
+    // Non-blocking: removes one message from the queue if present, returns false if empty.
+    // Correct here because the caller only calls it after being told the queue has input.
+    [DllImport(User32, CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PeekMessageW(out MSG msg, nint hWnd, uint filterMin, uint filterMax, uint flags);
 }

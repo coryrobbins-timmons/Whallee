@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Whallee.Core.Configuration;
+using Whallee.Core.Desktop;
 
 namespace Whallee.Core.Playback;
 
@@ -48,7 +49,7 @@ public sealed class MpvHost : IDisposable
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        if (process.WaitForExit((int)LivenessWindow.TotalMilliseconds))
+        if (MessagePump.WaitForExit(process, LivenessWindow))
         {
             var reason = process.ExitCode switch
             {

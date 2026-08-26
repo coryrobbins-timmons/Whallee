@@ -18,4 +18,9 @@ internal static class NativeConstants
     public const uint SMTO_NORMAL     = 0x0000;
     public const uint WM_DISPLAYCHANGE = 0x007E;
     public const uint WM_QUIT          = 0x0012;
+    public const uint QS_ALLINPUT          = 0x04FF;
+    public const uint MWMO_INPUTAVAILABLE  = 0x0004;
+    public const uint PM_REMOVE            = 0x0001;
+    public const uint WAIT_TIMEOUT         = 0x00000102;
+    public const uint WAIT_FAILED          = 0xFFFFFFFF;
 }
