@@ -64,7 +64,9 @@ switch (args[0])
             mpvPath, host.Handle, videoPath, ScalingMode.FillCrop, "whallee-0", guard);
         Console.WriteLine($"mpv pid {mpv.ProcessId} running — press Enter to stop");
 
-        Console.ReadLine();
+        // Read the line on a background thread so this one — which owns the host window,
+        // and whose input queue Explorer's desktop is now attached to — keeps pumping.
+        MessagePump.RunUntil(Task.Run(Console.ReadLine));
         return 0;
     }
 

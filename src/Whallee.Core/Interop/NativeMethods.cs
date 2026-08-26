@@ -49,6 +49,18 @@ internal struct WNDCLASSEX
     public nint hIconSm;
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal struct MSG
+{
+    public nint hwnd;
+    public uint message;
+    public nint wParam;
+    public nint lParam;
+    public uint time;
+    public int  ptX;
+    public int  ptY;
+}
+
 internal delegate bool EnumWindowsProc(nint hwnd, nint lParam);
 internal delegate bool MonitorEnumProc(nint hMonitor, nint hdc, ref RECT rect, nint data);
 internal delegate nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam);
@@ -120,4 +132,23 @@ internal static class NativeMethods
     [DllImport(User32, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool ShowWindow(nint hWnd, int cmdShow);
+
+    // Returns >0 for a real message, 0 for WM_QUIT, and -1 on error - so callers must test
+    // the sign, not truthiness. Blocks until a message arrives.
+    [DllImport(User32, CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern int GetMessageW(out MSG msg, nint hWnd, uint filterMin, uint filterMax);
+
+    [DllImport(User32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool TranslateMessage(ref MSG msg);
+
+    [DllImport(User32, CharSet = CharSet.Unicode)]
+    public static extern nint DispatchMessageW(ref MSG msg);
+
+    [DllImport(User32, CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool PostThreadMessageW(uint threadId, uint msg, nint wParam, nint lParam);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
 }

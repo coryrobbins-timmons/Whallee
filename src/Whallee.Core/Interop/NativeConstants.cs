@@ -17,4 +17,5 @@ internal static class NativeConstants
     public const uint SWP_NOZORDER    = 0x0004;
     public const uint SMTO_NORMAL     = 0x0000;
     public const uint WM_DISPLAYCHANGE = 0x007E;
+    public const uint WM_QUIT          = 0x0012;
 }
