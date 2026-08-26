@@ -1,3 +1,4 @@
+using Whallee.Core;
 using Whallee.Core.Configuration;
 using Whallee.Core.Desktop;
 using Whallee.Core.Displays;
@@ -68,6 +69,37 @@ switch (args[0])
         // and whose input queue Explorer's desktop is now attached to — keeps pumping.
         MessagePump.RunUntil(Task.Run(Console.ReadLine));
         return 0;
+    }
+
+    case "all":
+    {
+        var configPath = ConfigStore.DefaultPath;
+        var config = ConfigStore.Load(configPath);
+
+        // First run: seed sensible values for this machine.
+        if (string.IsNullOrEmpty(config.LibraryFolder))
+        {
+            config.LibraryFolder =
+                @"C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Whallee\Library";
+            config.MpvPath =
+                @"C:\Users\cory.robbins\AppData\Local\Programs\Lively Wallpaper\Plugins\Mpv\mpv.exe";
+        }
+
+        using var engine = new WallpaperEngine(config);
+        engine.Start();
+
+        foreach (var error in engine.LastErrors)
+            Console.WriteLine($"error: {error}");
+
+        ConfigStore.Save(config, configPath);
+        Console.WriteLine($"config written to {configPath}");
+        Console.WriteLine("running — press Enter to stop");
+
+        // AMENDED 2026-08-25: must pump, not Console.ReadLine(). This thread owns the host
+        // windows, and SetParent attached its input queue to Explorer's desktop thread — a
+        // thread that stops pumping freezes the user's desktop. See Task 13 Step 3.
+        MessagePump.RunUntil(Task.Run(Console.ReadLine));
+        return engine.LastErrors.Count == 0 ? 0 : 3;
     }
 
     default:
