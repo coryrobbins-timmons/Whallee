@@ -16,6 +16,12 @@ internal static class NativeConstants
     public const uint SWP_NOMOVE      = 0x0002;
     public const uint SWP_NOZORDER    = 0x0004;
     public const uint SMTO_NORMAL     = 0x0000;
+    // Never send to the desktop layer without this: it makes SendMessageTimeoutW give up
+    // immediately if Explorer is already hung, instead of blocking out the full timeout.
+    public const uint SMTO_ABORTIFHUNG = 0x0002;
+    // Virtual-screen origin. Authoritative and immune to a monitor dropping out of an enumeration.
+    public const int  SM_XVIRTUALSCREEN = 76;
+    public const int  SM_YVIRTUALSCREEN = 77;
     public const uint WM_DISPLAYCHANGE = 0x007E;
     public const uint WM_QUIT          = 0x0012;
     public const uint QS_ALLINPUT          = 0x04FF;

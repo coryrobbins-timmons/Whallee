@@ -16,7 +16,19 @@ public static class DesktopLayer
             return null;
 
         // Ask Progman to create the wallpaper WorkerW. Undocumented but long-standing.
-        NativeMethods.SendMessageTimeoutW(progman, WM_SPAWN_WORKER, 0xD, 0x1, SMTO_NORMAL, 1000, out _);
+        //
+        // This is a *send*, not a post: it blocks this thread for up to 1 s waiting on Explorer's
+        // desktop thread, without draining our own posted input. That is safe only because of a
+        // dependency that is load-bearing and otherwise invisible: every caller reaches Locate()
+        // either before any host window exists (first Start()) or after StopAll() has destroyed
+        // them all (Restart()), so at this instant no SetParent attachment binds our input queue
+        // to Explorer's. If a future change ever calls Locate() while host windows are attached,
+        // this line becomes a 1 s freeze of the user's whole desktop — the fifth instance of the
+        // bug class this branch has already fought four times. SMTO_ABORTIFHUNG at least bounds
+        // it to "give up immediately" when Explorer is already hung, rather than waiting out the
+        // full timeout behind a shell that is never going to answer.
+        NativeMethods.SendMessageTimeoutW(
+            progman, WM_SPAWN_WORKER, 0xD, 0x1, SMTO_NORMAL | SMTO_ABORTIFHUNG, 1000, out _);
 
         var located = Find(progman);
         if (located is not null)

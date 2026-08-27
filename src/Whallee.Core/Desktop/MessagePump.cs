@@ -35,6 +35,13 @@ public static class MessagePump
         // already completed, this continuation runs inline right here and the message is sitting
         // in the queue before the loop starts. Faults and cancellation wake it too, deliberately:
         // any exit of the reader must release the pump so the caller can tear down.
+        //
+        // NOTE for any future nested pump, anywhere: this is an ORDINARY queued WM_QUIT, not the
+        // sticky quit flag PostQuitMessage sets. A nested PeekMessageW(PM_REMOVE) loop will
+        // therefore consume it, and TranslateMessage/DispatchMessageW on a WM_QUIT whose hwnd is 0
+        // silently do nothing — so the message is destroyed and the loop below blocks forever.
+        // Every nested pump must detect WM_QUIT and re-post it rather than dispatch it. The one
+        // correct way to drain from a nested wait is DrainQueue below; use it.
         _ = until.ContinueWith(
             _ => NativeMethods.PostThreadMessageW(threadId, WM_QUIT, 0, 0),
             CancellationToken.None,
@@ -80,11 +87,11 @@ public static class MessagePump
                     return true;
 
                 case 1: // WAIT_OBJECT_0 + 1: new input is queued - drain it, then re-wait
-                    while (NativeMethods.PeekMessageW(out var message, 0, 0, 0, PM_REMOVE))
-                    {
-                        NativeMethods.TranslateMessage(ref message);
-                        NativeMethods.DispatchMessageW(ref message);
-                    }
+                    // A WM_QUIT during the drain means RunUntil is tearing this thread down.
+                    // Report "did not exit": we are shutting down, and claiming a healthy mpv
+                    // avoids a spurious "mpv failed" exception on the way out.
+                    if (DrainQueue())
+                        return false;
                     continue;
 
                 case WAIT_TIMEOUT:
@@ -113,7 +120,9 @@ public static class MessagePump
     /// but with zero handles: the return-value mapping differs. With <c>nCount = 0</c>, "new input
     /// is queued" is signaled by <c>WAIT_OBJECT_0 + nCount</c>, i.e. <c>0</c> - the same value
     /// <see cref="WaitForExit"/> uses for "the handle is signaled". Here <c>0</c> instead means
-    /// drain the queue and re-wait; only <c>WAIT_TIMEOUT</c> ends the wait.
+    /// drain the queue and re-wait; only <c>WAIT_TIMEOUT</c> (or a <c>WM_QUIT</c> seen while
+    /// draining) ends the wait. The two mappings are deliberately NOT unified — the same return
+    /// value means opposite things at <c>nCount = 1</c> and <c>nCount = 0</c>.
     /// </remarks>
     public static void Sleep(TimeSpan duration)
     {
@@ -134,18 +143,50 @@ public static class MessagePump
                 case WAIT_TIMEOUT:
                     return;
 
-                case WAIT_FAILED:
+                case 0: // WAIT_OBJECT_0 + nCount here (nCount = 0): input is queued
+                    // A WM_QUIT during the drain means RunUntil is tearing this thread down:
+                    // stop waiting out the remaining duration and unwind.
+                    if (DrainQueue())
+                        return;
+                    continue;
+
+                default: // WAIT_FAILED and anything else unexpected
+                    // Deliberately consistent with WaitForExit's default arm: an unrecognised
+                    // wait code is an error, not "input is available". Treating it as input
+                    // would spin this loop until the deadline against a broken wait.
                     throw new InvalidOperationException(
                         $"MsgWaitForMultipleObjectsEx failed: {Marshal.GetLastWin32Error()}");
-
-                default: // 0 == WAIT_OBJECT_0 + nCount here (nCount = 0): input is queued
-                    while (NativeMethods.PeekMessageW(out var message, 0, 0, 0, PM_REMOVE))
-                    {
-                        NativeMethods.TranslateMessage(ref message);
-                        NativeMethods.DispatchMessageW(ref message);
-                    }
-                    continue;
             }
         }
+    }
+
+    /// <summary>
+    /// Dispatches every message currently queued on the calling thread. Returns true if a
+    /// <c>WM_QUIT</c> was found — in which case it has been re-posted to this thread and draining
+    /// stopped, and the caller must unwind rather than keep waiting.
+    /// </summary>
+    /// <remarks>
+    /// The re-post is the whole point. <see cref="RunUntil"/> signals shutdown with
+    /// <c>PostThreadMessageW(WM_QUIT)</c>, an ordinary queued message rather than
+    /// <c>PostQuitMessage</c>'s sticky flag, and dispatching a <c>WM_QUIT</c> whose <c>hwnd</c> is
+    /// 0 silently does nothing. A nested drain that simply dispatched it would therefore consume
+    /// the only shutdown signal in existence, leaving <see cref="RunUntil"/>'s <c>GetMessageW</c>
+    /// blocked forever: the harness would never exit and the wallpapers would stay up.
+    /// </remarks>
+    private static bool DrainQueue()
+    {
+        while (NativeMethods.PeekMessageW(out var message, 0, 0, 0, PM_REMOVE))
+        {
+            if (message.message == WM_QUIT)
+            {
+                NativeMethods.PostThreadMessageW(NativeMethods.GetCurrentThreadId(), WM_QUIT, 0, 0);
+                return true;
+            }
+
+            NativeMethods.TranslateMessage(ref message);
+            NativeMethods.DispatchMessageW(ref message);
+        }
+
+        return false;
     }
 }

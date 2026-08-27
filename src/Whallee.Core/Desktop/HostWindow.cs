@@ -39,7 +39,24 @@ public sealed class HostWindow : IDisposable
             throw new InvalidOperationException(
                 $"CreateWindowExW failed for {display.DeviceName}: {Marshal.GetLastWin32Error()}");
 
-        Attach(handle, display, layer);
+        try
+        {
+            Attach(handle, display, layer);
+        }
+        catch
+        {
+            // Attach can fail after the window exists. Nothing has wrapped this HWND yet, so no
+            // Dispose will ever reach it — and by this point the Classic path has already flipped
+            // WS_POPUP to WS_CHILD, so a SetParent failure (a stale WorkerW handle after Explorer
+            // restarted mid-Restart, say) leaves a visible full-screen window with a NULL class
+            // brush and no WS_EX_TRANSPARENT: it paints nothing and swallows every mouse click on
+            // that monitor for the rest of the session. WallpaperEngine catches per display and
+            // keeps running, so nothing else would ever clean it up. Destroy it before letting the
+            // failure out.
+            NativeMethods.DestroyWindow(handle);
+            throw;
+        }
+
         return new HostWindow(handle);
     }
 
@@ -47,24 +64,50 @@ public sealed class HostWindow : IDisposable
     {
         if (layer.Mode == DesktopLayerMode.RaisedDesktop)
         {
+            // UNVERIFIED ON REAL HARDWARE as of 2026-08-25: this machine reports mode Classic, so
+            // this branch has never executed here. It is the branch that runs first on a machine
+            // whose Progman carries WS_EX_NOREDIRECTIONBITMAP, so the defects below were fixed
+            // blind, by owner decision. Treat any change here as untested.
+            //
+            // DesktopLayer.Find requires layer.WorkerW to be non-zero to reach this branch even
+            // though the branch parents to Progman and never reads WorkerW. That is deliberate and
+            // not dead weight: a non-zero WorkerW is the evidence that the desktop layer was
+            // actually located rather than half-found, and dropping the requirement would let us
+            // attach to a Progman whose wallpaper layer does not exist yet.
+
             // GetWindowLongPtr/SetWindowLongPtr are intentionally left unchecked: both
             // legitimately return 0 when the previous value was 0, so telling that apart
             // from failure requires clearing the last error first, which is out of scope here.
             var style = (long)NativeMethods.GetWindowLongPtr(handle, GWL_STYLE);
             NativeMethods.SetWindowLongPtr(handle, GWL_STYLE, (nint)((style & ~WS_POPUP) | WS_CHILD));
 
-            var exStyle = (long)NativeMethods.GetWindowLongPtr(handle, GWL_EXSTYLE);
-            NativeMethods.SetWindowLongPtr(handle, GWL_EXSTYLE, (nint)(exStyle | WS_EX_LAYERED));
+            // WS_EX_LAYERED is deliberately NOT set. It used to be added here and never followed
+            // by SetLayeredWindowAttributes or UpdateLayeredWindow — and per MSDN a layered window
+            // is not displayed at all until one of those is called, so as written this branch would
+            // have shown nothing. Of the two available fixes, dropping the style is the safer one
+            // on a branch nobody can test: the Classic path is verified working without it, nothing
+            // here needs per-window alpha or a colour key, and a full-screen layered window costs an
+            // extra redirection surface for video that is opaque anyway. If a future machine turns
+            // out to need it, the fix is one line —
+            // SetLayeredWindowAttributes(handle, 0, 255, LWA_ALPHA) right here — and it must be
+            // added together with the style, never separately.
 
             if (NativeMethods.SetParent(handle, layer.Progman) == 0)
                 throw new InvalidOperationException(
                     $"SetParent into Progman failed for {display.DeviceName}: {Marshal.GetLastWin32Error()}");
 
-            // Sit immediately behind the icon layer.
-            NativeMethods.SetWindowPos(
-                handle, layer.ShellDefView,
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            // Sit immediately behind the icon layer. Checked, unlike a plain reposition: this is
+            // the call that keeps the video *behind* the desktop icons, so a silent failure here
+            // does not degrade gracefully — it puts video on top of the user's icons.
+            if (!NativeMethods.SetWindowPos(
+                    handle, layer.ShellDefView,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+            {
+                throw new InvalidOperationException(
+                    $"SetWindowPos (z-order behind the icon layer) failed for " +
+                    $"{display.DeviceName}: {Marshal.GetLastWin32Error()}");
+            }
         }
         else
         {
@@ -81,8 +124,9 @@ public sealed class HostWindow : IDisposable
 
         // After reparenting, coordinates are relative to the new parent, which spans the whole
         // virtual desktop. Re-apply the display's position in that space.
-        var originX = display.X - VirtualScreenOrigin().x;
-        var originY = display.Y - VirtualScreenOrigin().y;
+        var origin = VirtualScreenOrigin();
+        var originX = display.X - origin.x;
+        var originY = display.Y - origin.y;
         // SWP_NOZORDER: the raised branch already set its z-order deliberately above, and in
         // Classic each display gets one non-overlapping window, so sibling ordering doesn't matter.
         if (!NativeMethods.SetWindowPos(
@@ -95,11 +139,18 @@ public sealed class HostWindow : IDisposable
     }
 
     /// <summary>Top-left of the virtual desktop; DISPLAY1 sits at a negative Y on this machine.</summary>
-    private static (int x, int y) VirtualScreenOrigin()
-    {
-        var all = DisplayEnumerator.Enumerate();
-        return (all.Min(d => d.X), all.Min(d => d.Y));
-    }
+    /// <remarks>
+    /// Two cheap authoritative system metrics, not a Min() over DisplayEnumerator.Enumerate().
+    /// The enumeration version was wrong twice over: it ran two full passes on consecutive lines
+    /// (EnumDisplayMonitors plus one EnumDisplayDevicesW per monitor, so 6 driver queries per host
+    /// window and 18 per Start(), all on the pump thread), and it silently dropped any monitor
+    /// whose GetMonitorInfoW failed. On this machine \\.\DISPLAY1 sits at y = -124, so one
+    /// transient failure mid-hotplug moved the computed origin to (0, 0) and offset *every* host
+    /// window by 124 px. SM_XVIRTUALSCREEN/SM_YVIRTUALSCREEN cannot lose a monitor that way.
+    /// </remarks>
+    private static (int x, int y) VirtualScreenOrigin() =>
+        (NativeMethods.GetSystemMetrics(SM_XVIRTUALSCREEN),
+         NativeMethods.GetSystemMetrics(SM_YVIRTUALSCREEN));
 
     private static void EnsureClassRegistered()
     {

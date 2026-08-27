@@ -100,6 +100,12 @@ internal static class NativeMethods
     [DllImport(User32, SetLastError = true)]
     public static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
 
+    // No SetLastError: GetSystemMetrics returns 0 both for failure and for a legitimately zero
+    // metric, so the last error would not disambiguate anything. SM_X/YVIRTUALSCREEN are always
+    // available on a system with a desktop.
+    [DllImport(User32)]
+    public static extern int GetSystemMetrics(int index);
+
     [DllImport(User32, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool EnumDisplayMonitors(nint hdc, nint clip, MonitorEnumProc callback, nint data);
