@@ -79,4 +79,44 @@ public class ConfigStoreTests : IDisposable
 
         Assert.True(File.Exists(path));
     }
+
+    [Fact]
+    public void Load_BindsHandEditedKeysRegardlessOfCase()
+    {
+        // Hand-editing config.json is a documented verification step. Before
+        // PropertyNameCaseInsensitive, a key typed in the wrong case bound to nothing at all: the
+        // assignment silently stayed on Shuffle and ClipResolver picked at random, which looks
+        // exactly like "pinning is broken".
+        var path = PathFor("handedited.json");
+        File.WriteAllText(path, """
+            {
+              "libraryfolder": "C:\\clips",
+              "displays": [
+                { "devicename": "\\\\.\\DISPLAY6", "mode": "Pinned", "pinnedpath": "nature-1.mp4" }
+              ]
+            }
+            """);
+
+        var config = ConfigStore.Load(path);
+
+        Assert.Equal(@"C:\clips", config.LibraryFolder);
+        var display = Assert.Single(config.Displays);
+        Assert.Equal(@"\\.\DISPLAY6", display.DeviceName);
+        Assert.Equal(DisplayMode.Pinned, display.Mode);
+        Assert.Equal("nature-1.mp4", display.PinnedPath);
+    }
+
+    [Fact]
+    public void Save_OverwritesInPlaceAndLeavesNoTempFileBehind()
+    {
+        // Save writes to a temp file and moves it over the target, so a crash mid-write cannot
+        // leave a truncated config. A successful save must leave nothing but the config.
+        var path = PathFor("atomic.json");
+        ConfigStore.Save(new WhalleeConfig { LibraryFolder = @"C:\first" }, path);
+
+        ConfigStore.Save(new WhalleeConfig { LibraryFolder = @"C:\second" }, path);
+
+        Assert.Equal(@"C:\second", ConfigStore.Load(path).LibraryFolder);
+        Assert.False(File.Exists(path + ".tmp"), "the temp file should have been moved, not left");
+    }
 }
