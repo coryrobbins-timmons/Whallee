@@ -15,6 +15,7 @@ public sealed class ShellWatcher : IDisposable
 
     private readonly Action _onShellRestarted;
     private readonly Action _onDisplaysChanged;
+    private readonly Action<string> _onError;
     private readonly WndProc _wndProc;         // held so the GC cannot collect the thunk
     private readonly uint _taskbarCreatedMessage;
 
@@ -23,10 +24,19 @@ public sealed class ShellWatcher : IDisposable
     private DateTime _lastRestart = DateTime.MinValue;
     private bool _disposed;
 
-    public ShellWatcher(Action onShellRestarted, Action onDisplaysChanged)
+    /// <param name="onShellRestarted">Explorer has restarted. MUST NOT block — see HandleMessage.</param>
+    /// <param name="onDisplaysChanged">The monitor layout changed. MUST NOT block.</param>
+    /// <param name="onError">
+    /// Reports a failure that would otherwise have crossed the native frame. MUST NOT block and
+    /// MUST NOT throw: it is called from inside a WndProc, on the thread whose input queue is
+    /// attached to Explorer's desktop, so anything unbounded here — console I/O included — freezes
+    /// the user's desktop. Hand it something that only enqueues.
+    /// </param>
+    public ShellWatcher(Action onShellRestarted, Action onDisplaysChanged, Action<string> onError)
     {
         _onShellRestarted = onShellRestarted;
         _onDisplaysChanged = onDisplaysChanged;
+        _onError = onError;
         _wndProc = HandleMessage;
         _taskbarCreatedMessage = RegisterWindowMessageW("TaskbarCreated");
         _explorerPid = CurrentExplorerPid();
@@ -55,26 +65,53 @@ public sealed class ShellWatcher : IDisposable
                 $"CreateWindowExW failed for {ClassName}: {Marshal.GetLastWin32Error()}");
     }
 
+    /// <remarks>
+    /// This is a reverse-P/Invoke callback: user32 calls it from inside DispatchMessageW. A managed
+    /// exception must therefore never leave this method. Letting one propagate would unwind across
+    /// the native user32 frame, skipping user32's own cleanup, and then escape through
+    /// MessagePump.RunUntil as an unhandled exception that kills the process while three mpv
+    /// processes are mid-teardown. Plenty on the Restart() path can throw — MessagePump.Sleep on
+    /// WAIT_FAILED, HostWindow's CreateWindowExW check, DesktopLayer and DisplayEnumerator, none of
+    /// which sit inside Start()'s per-display try — so the whole body is guarded and always falls
+    /// through to DefWindowProcW.
+    /// </remarks>
     private nint HandleMessage(nint hwnd, uint msg, nint wParam, nint lParam)
     {
-        if (msg == _taskbarCreatedMessage)
+        try
         {
-            var pid = CurrentExplorerPid();
-            if (pid != _explorerPid)
+            if (msg == _taskbarCreatedMessage)
             {
-                _explorerPid = pid;
-                if (DateTime.UtcNow - _lastRestart > CrashLoopGuard)
+                var pid = CurrentExplorerPid();
+                if (pid != _explorerPid)
                 {
-                    _lastRestart = DateTime.UtcNow;
-                    _onShellRestarted();
+                    _explorerPid = pid;
+                    if (DateTime.UtcNow - _lastRestart > CrashLoopGuard)
+                    {
+                        _lastRestart = DateTime.UtcNow;
+                        _onShellRestarted();
+                    }
+                    // Inside the guard window: Explorer is crash-looping. Do nothing rather than
+                    // thrash re-attaching.
                 }
-                // Inside the guard window: Explorer is crash-looping. Do nothing rather than
-                // thrash re-attaching.
+            }
+            else if (msg == WM_DISPLAYCHANGE)
+            {
+                _onDisplaysChanged();
             }
         }
-        else if (msg == WM_DISPLAYCHANGE)
+        catch (Exception ex)
         {
-            _onDisplaysChanged();
+            // Never rethrow. Report it and carry on: the engine may be half-attached, but a live
+            // desktop with one broken monitor beats a dead process that left mpv running.
+            try
+            {
+                _onError($"watcher failed handling message 0x{msg:X}: {ex.Message}");
+            }
+            catch
+            {
+                // The reporter itself failed. There is nothing left to report it to, and throwing
+                // from here would land us back on the native frame this catch exists to protect.
+            }
         }
 
         return NativeMethods.DefWindowProcW(hwnd, msg, wParam, lParam);
