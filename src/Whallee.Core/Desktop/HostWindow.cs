@@ -64,10 +64,12 @@ public sealed class HostWindow : IDisposable
     {
         if (layer.Mode == DesktopLayerMode.RaisedDesktop)
         {
-            // UNVERIFIED ON REAL HARDWARE as of 2026-08-25: this machine reports mode Classic, so
-            // this branch has never executed here. It is the branch that runs first on a machine
-            // whose Progman carries WS_EX_NOREDIRECTIONBITMAP, so the defects below were fixed
-            // blind, by owner decision. Treat any change here as untested.
+            // UNVERIFIED ON REAL HARDWARE as of 2026-08-25, and STILL unexercised after the
+            // 2026-08-27 re-review: this machine reports mode Classic, so this branch has never
+            // executed here. It is the branch that runs first on a machine whose Progman carries
+            // WS_EX_NOREDIRECTIONBITMAP, so the defects below were fixed blind, by owner decision.
+            // Treat any change here as untested — and if this branch ever does run and shows a
+            // black desktop, the layered-window decision below is the first thing to revisit.
             //
             // DesktopLayer.Find requires layer.WorkerW to be non-zero to reach this branch even
             // though the branch parents to Progman and never reads WorkerW. That is deliberate and
@@ -81,16 +83,31 @@ public sealed class HostWindow : IDisposable
             var style = (long)NativeMethods.GetWindowLongPtr(handle, GWL_STYLE);
             NativeMethods.SetWindowLongPtr(handle, GWL_STYLE, (nint)((style & ~WS_POPUP) | WS_CHILD));
 
-            // WS_EX_LAYERED is deliberately NOT set. It used to be added here and never followed
-            // by SetLayeredWindowAttributes or UpdateLayeredWindow — and per MSDN a layered window
-            // is not displayed at all until one of those is called, so as written this branch would
-            // have shown nothing. Of the two available fixes, dropping the style is the safer one
-            // on a branch nobody can test: the Classic path is verified working without it, nothing
-            // here needs per-window alpha or a colour key, and a full-screen layered window costs an
-            // extra redirection surface for video that is opaque anyway. If a future machine turns
-            // out to need it, the fix is one line —
-            // SetLayeredWindowAttributes(handle, 0, 255, LWA_ALPHA) right here — and it must be
-            // added together with the style, never separately.
+            // WS_EX_LAYERED, followed immediately by the SetLayeredWindowAttributes that MSDN makes
+            // mandatory: a layered window is not displayed at all until either that or
+            // UpdateLayeredWindow has been called. The two belong together — the style on its own
+            // is an invisible window, which is exactly what this branch used to be.
+            //
+            // WHY LAYERED AT ALL, when the Classic path does not need it: this branch exists
+            // precisely because Progman carries WS_EX_NOREDIRECTIONBITMAP, i.e. that top-level
+            // window has NO redirection surface. An ordinary child window composites into its
+            // top-level's redirection surface, so a plain child of this Progman plausibly has
+            // nowhere to composite from and renders nothing — which is very likely why the style
+            // was here in the first place. A layered child is composited independently, with a
+            // surface of its own. Note that "Classic works without it" does NOT transfer as an
+            // argument: Classic parents into WorkerW, an ordinary top-level window that does have a
+            // redirection surface.
+            //
+            // Neither option can be exercised on this machine, so the tiebreak is to take the one
+            // MSDN documents. Alpha 255 with a zero colour key means fully opaque with no colour
+            // keying: what is wanted here is the independent surface, not transparency.
+            var exStyle = (long)NativeMethods.GetWindowLongPtr(handle, GWL_EXSTYLE);
+            NativeMethods.SetWindowLongPtr(handle, GWL_EXSTYLE, (nint)(exStyle | WS_EX_LAYERED));
+
+            if (!NativeMethods.SetLayeredWindowAttributes(handle, 0, 255, LWA_ALPHA))
+                throw new InvalidOperationException(
+                    $"SetLayeredWindowAttributes failed for {display.DeviceName}: " +
+                    $"{Marshal.GetLastWin32Error()}");
 
             if (NativeMethods.SetParent(handle, layer.Progman) == 0)
                 throw new InvalidOperationException(

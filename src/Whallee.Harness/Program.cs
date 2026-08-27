@@ -5,6 +5,20 @@ using Whallee.Core.Desktop;
 using Whallee.Core.Displays;
 using Whallee.Core.Playback;
 
+// EXIT CODES — the single place they are defined. A caller scripting this harness needs to tell
+// "partly up" from "nothing up" without parsing text, so 3 and 6 are deliberately distinct.
+//
+//   0  success. Includes the legitimate "no displays detected" case: nothing to start, no errors.
+//   1  usage error, or an unknown verb.
+//   2  the desktop wallpaper layer (WorkerW) could not be found — from the pre-flight check in
+//      `workerw` and `one`. In `all` the engine reports it as an error instead, so that surfaces
+//      as 6 with the reason on the console.
+//   3  running, but degraded: at least one display IS playing and at least one reported an error.
+//   4  the `one` verb threw.
+//   5  the `all` verb threw.
+//   6  the `all` verb started nothing: zero players despite errors being reported. Nothing is on
+//      screen. Distinct from 0, where zero players simply means there was nothing to start.
+
 if (args.Length == 0)
 {
     Console.WriteLine("usage: Whallee.Harness <displays | workerw | one <video-path> | all>");
@@ -133,7 +147,11 @@ static int RunAll()
     // wait for its printer thread.
     using var reporter = new ConsoleReporter();
 
-    using var engine = new WallpaperEngine(config);
+    // The reporter doubles as the engine's whole-pass failure channel: a failure that a coalesced
+    // retry supersedes is cleared from LastErrors before Describe ever runs, so it has to reach the
+    // console at the moment it happens or not at all. Enqueue-only, which is what that callback
+    // requires — it fires on the pump thread.
+    using var engine = new WallpaperEngine(config, onStartFailure: reporter.Report);
     engine.Start();
 
     foreach (var line in Describe(engine))
@@ -166,7 +184,13 @@ static int RunAll()
     // windows, and SetParent attached its input queue to Explorer's desktop thread — a
     // thread that stops pumping freezes the user's desktop. See Task 13 Step 3.
     MessagePump.RunUntil(Task.Run(Console.ReadLine));
-    return engine.LastErrors.Count == 0 ? 0 : 3;
+
+    // Reflects the FINAL state, not any superseded attempt — see the exit-code table at the top.
+    // Zero players with no errors is the legitimate "no displays detected" case, so it stays 0;
+    // zero players WITH errors means nothing is on screen and gets its own code.
+    if (engine.LastErrors.Count == 0)
+        return 0;
+    return engine.ActivePlayers.Count == 0 ? 6 : 3;
 
     void RestartAndReport()
     {
@@ -251,9 +275,13 @@ sealed class ConsoleReporter : IDisposable
             {
                 Console.WriteLine(line);
             }
-            catch (IOException)
+            catch (Exception)
             {
-                // stdout is gone (closed pipe). Keep draining so no producer is ever left waiting.
+                // EVERYTHING, not just IOException. This runs on a background thread, where an
+                // unhandled exception terminates the whole process — and it would do so during
+                // teardown, with mpv processes mid-kill. A printer thread must never be able to
+                // kill the process: dropping a diagnostic line is always the better outcome.
+                // Keep draining either way, so no producer is ever left waiting on a full queue.
             }
         }
     }

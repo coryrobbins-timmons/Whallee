@@ -5,6 +5,8 @@ internal static class NativeConstants
     public const uint WM_SPAWN_WORKER = 0x052C;
     public const int  WS_EX_NOREDIRECTIONBITMAP = 0x00200000;
     public const int  WS_EX_LAYERED   = 0x00080000;
+    // Alpha flag for SetLayeredWindowAttributes, which WS_EX_LAYERED makes mandatory.
+    public const uint LWA_ALPHA       = 0x00000002;
     public const int  WS_EX_TOOLWINDOW = 0x00000080;
     public const int  WS_CHILD        = 0x40000000;
     public const int  WS_VISIBLE      = 0x10000000;

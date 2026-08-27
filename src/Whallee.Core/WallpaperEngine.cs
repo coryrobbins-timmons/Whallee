@@ -22,6 +22,7 @@ public sealed class WallpaperEngine : IDisposable
     private readonly List<HostWindow> _hosts = new();
     private readonly List<ActivePlayer> _active = new();
     private readonly List<string> _errors = new();
+    private readonly Action<string>? _onStartFailure;
 
     /// <summary>Incremented on every start pass; keeps IPC pipe names unique across generations.</summary>
     private int _generation;
@@ -39,9 +40,18 @@ public sealed class WallpaperEngine : IDisposable
     /// </summary>
     public IReadOnlyList<ActivePlayer> ActivePlayers => _active.ToArray();
 
-    public WallpaperEngine(WhalleeConfig config)
+    /// <param name="config">Live config. <see cref="Start"/> adds an assignment for any new display.</param>
+    /// <param name="onStartFailure">
+    /// Optional. Called the moment a whole-pass failure happens, so it is visible even when a
+    /// coalesced retry immediately supersedes it and clears <see cref="LastErrors"/>. Called on the
+    /// pump thread from inside the start loop, so it MUST NOT block and MUST NOT throw — hand it
+    /// something that only enqueues. Per-display errors are not routed here; they survive in
+    /// <see cref="LastErrors"/> for the caller to read after the pass.
+    /// </param>
+    public WallpaperEngine(WhalleeConfig config, Action<string>? onStartFailure = null)
     {
         _config = config;
+        _onStartFailure = onStartFailure;
         _listFiles = ClipResolver.ListLibraryFiles;
         _random = new Random();
     }
@@ -99,6 +109,17 @@ public sealed class WallpaperEngine : IDisposable
                     // caller is either the harness, which prints LastErrors and exits non-zero, or
                     // a WndProc, where a throw could only be caught and logged anyway.
                     _errors.Add($"start failed: {ex.Message}");
+
+                    // Also reported HERE, at the point of failure, and not left to LastErrors
+                    // alone: _errors is cleared at the top of every pass, so a whole-pass failure
+                    // that a coalesced retry then superseded would be wiped before anybody read it,
+                    // leaving no trace of it at all. "It failed, retried, and recovered" is exactly
+                    // the diagnostic a misbehaving hotplug calls for. _restartPending is already
+                    // set by any event that arrived during the failing pass, so the wording can say
+                    // which of the two outcomes this is.
+                    ReportStartFailure(_restartPending
+                        ? $"start attempt failed, a display change is queued so retrying: {ex.Message}"
+                        : $"start attempt failed, giving up on this pass: {ex.Message}");
                 }
             }
             while (_restartPending);
@@ -118,6 +139,23 @@ public sealed class WallpaperEngine : IDisposable
     /// named entry point because it is what the callers mean.
     /// </remarks>
     public void Restart() => Start();
+
+    /// <summary>
+    /// Hands a whole-pass failure to the caller's reporter, if it supplied one. Guarded: a reporter
+    /// that throws must not abort the start loop — least of all from inside the catch that exists to
+    /// keep the loop alive in the first place.
+    /// </summary>
+    private void ReportStartFailure(string message)
+    {
+        try
+        {
+            _onStartFailure?.Invoke(message);
+        }
+        catch
+        {
+            // Nothing left to report it to.
+        }
+    }
 
     private void StartOnce()
     {

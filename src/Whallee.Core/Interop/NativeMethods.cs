@@ -97,6 +97,12 @@ internal static class NativeMethods
     public static extern bool SetWindowPos(
         nint hWnd, nint insertAfter, int x, int y, int cx, int cy, uint flags);
 
+    // Mandatory after adding WS_EX_LAYERED: per MSDN a layered window is not displayed until
+    // either this or UpdateLayeredWindow has been called. crKey is the colour key; alpha is 0-255.
+    [DllImport(User32, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetLayeredWindowAttributes(nint hWnd, uint crKey, byte alpha, uint flags);
+
     [DllImport(User32, SetLastError = true)]
     public static extern uint GetWindowThreadProcessId(nint hWnd, out uint processId);
 
