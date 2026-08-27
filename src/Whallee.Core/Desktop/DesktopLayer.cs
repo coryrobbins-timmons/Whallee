@@ -22,7 +22,12 @@ public static class DesktopLayer
         if (located is not null)
             return located;
 
-        Thread.Sleep(500);   // Explorer is sometimes slow to create it
+        // Explorer is sometimes slow to create it. AMENDED 2026-08-27: must pump while waiting,
+        // not Thread.Sleep - Task 13 makes Locate() reachable from Restart() on the display-change
+        // path, where Explorer is alive and our input queue may already be attached to its
+        // desktop thread via SetParent. A plain sleep there would stall the user's desktop input
+        // for the duration.
+        MessagePump.Sleep(TimeSpan.FromMilliseconds(500));
         return Find(progman);
     }
 

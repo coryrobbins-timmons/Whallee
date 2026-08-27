@@ -97,28 +97,45 @@ public sealed class WallpaperEngine : IDisposable
     }
 
     private bool _restarting;
+    private bool _restartPending;
 
     /// <summary>Tear everything down and re-attach. Used after Explorer restarts or displays change.</summary>
     public void Restart()
     {
-        // AMENDED 2026-08-25: re-entrancy guard. Restart() PUMPS MESSAGES while it runs, because
-        // MpvHost's liveness wait does - so the watcher's WndProc can be re-entered mid-Restart,
-        // and WM_DISPLAYCHANGE in particular arrives in bursts with no crash-loop guard of its
-        // own. A nested Restart() would have the inner StopAll() dispose host windows the outer
-        // Start() is still looping over, leaving mixed generations and colliding pipe names.
-        // Drop the re-entrant call rather than queueing it: the in-flight Restart() is already
-        // rebuilding from current state. A plain bool is sufficient - every caller is the pump
-        // thread, so this is single-threaded by construction.
-        if (_restarting) return;
+        // AMENDED 2026-08-27: re-entrancy guard, now coalescing rather than dropping. Restart()
+        // PUMPS MESSAGES while it runs, because MpvHost's liveness wait does - so the watcher's
+        // WndProc can be re-entered mid-Restart, and WM_DISPLAYCHANGE in particular arrives in
+        // bursts with no crash-loop guard of its own (unlike onShellRestarted). Start() snapshots
+        // DisplayEnumerator.Enumerate() once at entry, so a Restart() that runs mid-hotplug can
+        // rebuild against a stale layout. Simply dropping a re-entrant call (the original
+        // approach) let the burst's *later* messages - including the one signalling the topology
+        // had settled - vanish into the guard, leaving the engine stuck on the stale layout with
+        // nothing left to re-trigger it. Instead, a re-entrant call sets _restartPending and the
+        // in-flight call loops again once it finishes. A plain bool is sufficient - every caller
+        // is the pump thread, so this is single-threaded by construction.
+        if (_restarting)
+        {
+            _restartPending = true;
+            return;
+        }
+
         _restarting = true;
         try
         {
-            StopAll();
-            Start();
+            do
+            {
+                // Cleared BEFORE the work, so an event arriving during this iteration is caught
+                // by the loop condition rather than by the iteration that already passed it.
+                _restartPending = false;
+                StopAll();
+                Start();
+            }
+            while (_restartPending);
         }
         finally
         {
             _restarting = false;
+            _restartPending = false;
         }
     }
 

@@ -96,4 +96,56 @@ public static class MessagePump
             }
         }
     }
+
+    /// <summary>
+    /// A pumping equivalent of <c>Thread.Sleep(TimeSpan)</c> for any caller that may own host
+    /// windows: waits out <paramref name="duration"/> while dispatching messages, rather than
+    /// blocking the thread outright.
+    /// </summary>
+    /// <remarks>
+    /// AMENDED 2026-08-27: added because <see cref="Whallee.Core.Desktop.DesktopLayer"/>.Locate()
+    /// had a plain <c>Thread.Sleep(500)</c> retry delay - harmless while nothing had reparented a
+    /// window yet, but Task 13 makes <c>Restart()</c> reachable from inside a dispatched
+    /// <c>WndProc</c> message, by which point our input queue may already be attached to
+    /// Explorer's. A non-pumping sleep there is a genuine 500 ms stall of the user's desktop.
+    ///
+    /// Built on the same <c>MsgWaitForMultipleObjectsEx</c> machinery as <see cref="WaitForExit"/>,
+    /// but with zero handles: the return-value mapping differs. With <c>nCount = 0</c>, "new input
+    /// is queued" is signaled by <c>WAIT_OBJECT_0 + nCount</c>, i.e. <c>0</c> - the same value
+    /// <see cref="WaitForExit"/> uses for "the handle is signaled". Here <c>0</c> instead means
+    /// drain the queue and re-wait; only <c>WAIT_TIMEOUT</c> ends the wait.
+    /// </remarks>
+    public static void Sleep(TimeSpan duration)
+    {
+        var deadline = DateTime.UtcNow + duration;
+
+        while (true)
+        {
+            var remaining = deadline - DateTime.UtcNow;
+            var remainingMs = remaining <= TimeSpan.Zero
+                ? 0u
+                : (uint)Math.Min(remaining.TotalMilliseconds, int.MaxValue);
+
+            var waitResult = NativeMethods.MsgWaitForMultipleObjectsEx(
+                0, null, remainingMs, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+
+            switch (waitResult)
+            {
+                case WAIT_TIMEOUT:
+                    return;
+
+                case WAIT_FAILED:
+                    throw new InvalidOperationException(
+                        $"MsgWaitForMultipleObjectsEx failed: {Marshal.GetLastWin32Error()}");
+
+                default: // 0 == WAIT_OBJECT_0 + nCount here (nCount = 0): input is queued
+                    while (NativeMethods.PeekMessageW(out var message, 0, 0, 0, PM_REMOVE))
+                    {
+                        NativeMethods.TranslateMessage(ref message);
+                        NativeMethods.DispatchMessageW(ref message);
+                    }
+                    continue;
+            }
+        }
+    }
 }

@@ -155,9 +155,11 @@ internal static class NativeMethods
     // Blocks until either a handle is signaled or a new message arrives in the calling thread's
     // queue (dwWakeMask), returning WAIT_OBJECT_0 (+n) or WAIT_OBJECT_0 + handleCount for input.
     // MWMO_INPUTAVAILABLE ensures a message already queued before the call still wakes it.
+    // handles is nullable so a zero-handle wait (MessagePump.Sleep) can pass null, which
+    // marshals to NULL - the documented way to wait on no handles, just the message queue.
     [DllImport(User32, SetLastError = true)]
     public static extern uint MsgWaitForMultipleObjectsEx(
-        uint handleCount, nint[] handles, uint milliseconds, uint wakeMask, uint flags);
+        uint handleCount, nint[]? handles, uint milliseconds, uint wakeMask, uint flags);
 
     // Non-blocking: removes one message from the queue if present, returns false if empty.
     // Correct here because the caller only calls it after being told the queue has input.
