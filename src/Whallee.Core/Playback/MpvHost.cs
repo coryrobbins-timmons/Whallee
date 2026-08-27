@@ -15,10 +15,22 @@ public sealed class MpvHost : IDisposable
     private readonly Process _process;
     private bool _disposed;
 
-    private MpvHost(Process process) => _process = process;
+    private MpvHost(Process process, string pipeName)
+    {
+        _process = process;
+        PipeName = pipeName;
+    }
 
     public bool IsRunning => !_process.HasExited;
     public int ProcessId => _process.Id;
+
+    /// <summary>
+    /// The name this player's <c>--input-ipc-server</c> pipe was created under (without the
+    /// <c>\\.\pipe\</c> prefix). Nothing in Plan 1 connects to it — by design; Plan 2 attaches.
+    /// It is stored rather than recomputed so a consumer never has to re-derive it from a loop
+    /// index, which cannot be mapped back to a display reliably.
+    /// </summary>
+    public string PipeName { get; }
 
     public static MpvHost Start(
         string mpvPath, nint hostWindow, string videoPath,
@@ -43,24 +55,40 @@ public sealed class MpvHost : IDisposable
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Process.Start returned null for mpv");
 
-        guard.Assign(process);
-
-        // Drain the pipes so a full buffer can never block mpv.
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        if (MessagePump.WaitForExit(process, LivenessWindow))
+        // Everything from here to the return must be guarded. mpv is RUNNING now, but it is not
+        // yet in the job object and not yet in WallpaperEngine's player list — so if anything
+        // below throws unguarded, nothing in the process can ever kill it, JobObjectGuard.Dispose
+        // included, and it survives until reboot painting on the user's desktop. The concrete
+        // trigger is a truncated or 0-byte clip: mpv exits almost immediately, and if it exits
+        // before AssignProcessToJobObject runs, that call fails and the caller gets
+        // "AssignProcessToJobObject failed: 6" instead of the informative message below.
+        try
         {
-            var reason = process.ExitCode switch
+            guard.Assign(process);
+
+            // Drain the pipes so a full buffer can never block mpv.
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            if (MessagePump.WaitForExit(process, LivenessWindow))
             {
-                1 => "mpv failed to initialise",
-                2 or 3 => "mpv could not play the file",
-                _ => $"mpv exited with code {process.ExitCode}"
-            };
-            throw new InvalidOperationException($"{reason} ({videoPath})");
+                var reason = process.ExitCode switch
+                {
+                    1 => "mpv failed to initialise",
+                    2 or 3 => "mpv could not play the file",
+                    _ => $"mpv exited with code {process.ExitCode}"
+                };
+                throw new InvalidOperationException($"{reason} ({videoPath})");
+            }
+        }
+        catch
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            process.Dispose();
+            throw;
         }
 
-        return new MpvHost(process);
+        return new MpvHost(process, pipeName);
     }
 
     public void Dispose()

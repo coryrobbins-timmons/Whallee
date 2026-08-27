@@ -5,114 +5,71 @@ using Whallee.Core.Playback;
 
 namespace Whallee.Core;
 
+/// <summary>What is playing on one display right now.</summary>
+/// <remarks>
+/// Exists so a consumer can map a display to its player — and therefore to its IPC pipe name —
+/// without re-deriving a loop index. The index is not a reliable key: a display whose clip fails
+/// to resolve is skipped, so the nth player is not necessarily the nth display.
+/// </remarks>
+public sealed record ActivePlayer(DisplayInfo Display, string ClipPath, MpvHost Player);
+
 public sealed class WallpaperEngine : IDisposable
 {
     private readonly WhalleeConfig _config;
-    private readonly ClipResolver _resolver;
+    private readonly Func<string, IReadOnlyList<string>> _listFiles;
+    private readonly Random _random;
     private readonly JobObjectGuard _guard = new();
     private readonly List<HostWindow> _hosts = new();
-    private readonly List<MpvHost> _players = new();
+    private readonly List<ActivePlayer> _active = new();
     private readonly List<string> _errors = new();
 
-    public IReadOnlyList<string> LastErrors => _errors;
-
-    public WallpaperEngine(WhalleeConfig config)
-    {
-        _config = config;
-        _resolver = new ClipResolver(ClipResolver.ListLibraryFiles, new Random());
-    }
-
-    public void Start()
-    {
-        StopAll();
-        _errors.Clear();
-
-        var layer = DesktopLayer.Locate();
-        if (layer is null)
-        {
-            _errors.Add("Could not find the desktop wallpaper layer (WorkerW).");
-            return;
-        }
-
-        var index = 0;
-        foreach (var display in DisplayEnumerator.Enumerate())
-        {
-            var assignment = MatchAssignment(display);
-            var clip = _resolver.Resolve(assignment, _config.LibraryFolder);
-            if (clip is null)
-            {
-                _errors.Add($"{display.DeviceName}: no playable clip in {_config.LibraryFolder}");
-                continue;
-            }
-
-            try
-            {
-                var host = HostWindow.CreateFor(display, layer);
-                _hosts.Add(host);
-                _players.Add(MpvHost.Start(
-                    _config.MpvPath, host.Handle, clip, _config.Scaling, $"whallee-{index}", _guard));
-            }
-            catch (Exception ex)
-            {
-                // One display failing must not take the others down.
-                _errors.Add($"{display.DeviceName}: {ex.Message}");
-            }
-            index++;
-        }
-    }
-
-    /// <summary>
-    /// Finds this display's saved assignment by stable id, then by device name. Unknown displays
-    /// get a Shuffle default and are added to config; saved displays that are absent stay in
-    /// config untouched so the assignment returns when the monitor does.
-    /// </summary>
-    private DisplayAssignment MatchAssignment(DisplayInfo display)
-    {
-        var match =
-            _config.Displays.FirstOrDefault(d =>
-                !string.IsNullOrEmpty(d.DeviceId) &&
-                string.Equals(d.DeviceId, display.DeviceId, StringComparison.OrdinalIgnoreCase))
-            ?? _config.Displays.FirstOrDefault(d =>
-                string.Equals(d.DeviceName, display.DeviceName, StringComparison.OrdinalIgnoreCase));
-
-        if (match is not null)
-            return match;
-
-        var created = new DisplayAssignment
-        {
-            DeviceId = display.DeviceId,
-            DeviceName = display.DeviceName,
-            Mode = DisplayMode.Shuffle
-        };
-        _config.Displays.Add(created);
-        return created;
-    }
-
-    public void StopAll()
-    {
-        foreach (var player in _players) player.Dispose();
-        _players.Clear();
-        foreach (var host in _hosts) host.Dispose();
-        _hosts.Clear();
-    }
+    /// <summary>Incremented on every start pass; keeps IPC pipe names unique across generations.</summary>
+    private int _generation;
 
     private bool _restarting;
     private bool _restartPending;
 
-    /// <summary>Tear everything down and re-attach. Used after Explorer restarts or displays change.</summary>
-    public void Restart()
+    /// <summary>Errors from the most recent start pass. A snapshot — the live list is not exposed.</summary>
+    public IReadOnlyList<string> LastErrors => _errors.ToArray();
+
+    /// <summary>
+    /// Which clip and which player are on which display right now. A snapshot; each entry carries
+    /// the player, so <c>ActivePlayers[i].Player.PipeName</c> is how Plan 2 finds a display's IPC
+    /// pipe without restarting anything.
+    /// </summary>
+    public IReadOnlyList<ActivePlayer> ActivePlayers => _active.ToArray();
+
+    public WallpaperEngine(WhalleeConfig config)
     {
-        // AMENDED 2026-08-27: re-entrancy guard, now coalescing rather than dropping. Restart()
-        // PUMPS MESSAGES while it runs, because MpvHost's liveness wait does - so the watcher's
-        // WndProc can be re-entered mid-Restart, and WM_DISPLAYCHANGE in particular arrives in
-        // bursts with no crash-loop guard of its own (unlike onShellRestarted). Start() snapshots
-        // DisplayEnumerator.Enumerate() once at entry, so a Restart() that runs mid-hotplug can
-        // rebuild against a stale layout. Simply dropping a re-entrant call (the original
-        // approach) let the burst's *later* messages - including the one signalling the topology
-        // had settled - vanish into the guard, leaving the engine stuck on the stale layout with
-        // nothing left to re-trigger it. Instead, a re-entrant call sets _restartPending and the
-        // in-flight call loops again once it finishes. A plain bool is sufficient - every caller
-        // is the pump thread, so this is single-threaded by construction.
+        _config = config;
+        _listFiles = ClipResolver.ListLibraryFiles;
+        _random = new Random();
+    }
+
+    /// <summary>
+    /// Tears down whatever is running and attaches a player to every current display.
+    /// </summary>
+    /// <remarks>
+    /// AMENDED 2026-08-27: re-entrancy is now guarded here, not only in <see cref="Restart"/>.
+    /// <see cref="Start"/> pumps messages for up to ~3 s (mpv's liveness wait does), so a
+    /// <c>WM_DISPLAYCHANGE</c> can be dispatched while it is running. That was unreachable only by
+    /// statement order in the harness — <c>Start()</c> was called before the watcher existed — and
+    /// the natural order for Plan 2's tray app, watcher first, reopens it: the re-entrant call
+    /// would find <c>_restarting == false</c>, run a full nested pass, and then the outer loop
+    /// would resume and append a SECOND generation of hosts and mpv processes for the remaining
+    /// displays. Both entry points now share one guard.
+    ///
+    /// The guard coalesces rather than drops. <c>WM_DISPLAYCHANGE</c> arrives in bursts and each
+    /// pass snapshots the display layout at entry, so dropping a re-entrant call would let the
+    /// burst's *later* messages — including the one signalling that the topology had settled —
+    /// vanish, leaving the engine on a stale layout with nothing left to re-trigger it. A
+    /// re-entrant call therefore sets <c>_restartPending</c> and the in-flight call loops again.
+    ///
+    /// Plain bools are correct: every caller is the pump thread, so this is single-threaded by
+    /// construction. Do not add locks or Interlocked.
+    /// </remarks>
+    public void Start()
+    {
         if (_restarting)
         {
             _restartPending = true;
@@ -127,8 +84,22 @@ public sealed class WallpaperEngine : IDisposable
                 // Cleared BEFORE the work, so an event arriving during this iteration is caught
                 // by the loop condition rather than by the iteration that already passed it.
                 _restartPending = false;
-                StopAll();
-                Start();
+                try
+                {
+                    StartOnce();
+                }
+                catch (Exception ex)
+                {
+                    // A failure from outside the per-display try (the desktop layer, the display
+                    // enumeration) must not escape with _restartPending still set, or a coalesced
+                    // event is dropped with nothing left to re-trigger it and the engine sits torn
+                    // down until the user notices. Record it and let the loop condition decide: if
+                    // an event did arrive, the next iteration runs and supersedes this failure.
+                    // Reporting through LastErrors rather than throwing is deliberate — every
+                    // caller is either the harness, which prints LastErrors and exits non-zero, or
+                    // a WndProc, where a throw could only be caught and logged anyway.
+                    _errors.Add($"start failed: {ex.Message}");
+                }
             }
             while (_restartPending);
         }
@@ -137,6 +108,125 @@ public sealed class WallpaperEngine : IDisposable
             _restarting = false;
             _restartPending = false;
         }
+    }
+
+    /// <summary>Tear everything down and re-attach. Used after Explorer restarts or displays change.</summary>
+    /// <remarks>
+    /// <see cref="Start"/> is non-additive — it opens with <c>StopAll()</c> — and now carries the
+    /// coalescing guard itself, so restarting is exactly starting again. The former
+    /// <c>StopAll(); Start();</c> body called <c>StopAll()</c> twice per restart; this stays as a
+    /// named entry point because it is what the callers mean.
+    /// </remarks>
+    public void Restart() => Start();
+
+    private void StartOnce()
+    {
+        StopAll();
+        _errors.Clear();
+        _generation++;
+
+        var layer = DesktopLayer.Locate();
+        if (layer is null)
+        {
+            _errors.Add("Could not find the desktop wallpaper layer (WorkerW).");
+            return;
+        }
+
+        // Listed ONCE per pass rather than once per display. This is Directory.EnumerateFiles over
+        // a OneDrive-backed folder running on the pump thread, so three displays meant three
+        // chances to block on a sync. ClipResolver's injected delegate is untouched — every
+        // display simply gets the same materialised snapshot.
+        IReadOnlyList<string> libraryFiles;
+        try
+        {
+            libraryFiles = _listFiles(_config.LibraryFolder);
+        }
+        catch (Exception ex)
+        {
+            _errors.Add($"could not list {_config.LibraryFolder}: {ex.Message}");
+            return;
+        }
+
+        var resolver = new ClipResolver(_ => libraryFiles, _random);
+        var displays = DisplayEnumerator.Enumerate();
+
+        for (var ordinal = 0; ordinal < displays.Count; ordinal++)
+        {
+            var display = displays[ordinal];
+            try
+            {
+                // MatchAssignment and Resolve sit INSIDE this try deliberately: they used to sit
+                // outside it, so a single IOException reaching out of the library folder aborted
+                // the whole pass — including displays that had already succeeded — in direct
+                // contradiction of the comment in the catch below.
+                var assignment = MatchAssignment(display);
+                var clip = resolver.Resolve(assignment, _config.LibraryFolder);
+                if (clip is null)
+                {
+                    _errors.Add($"{display.DeviceName}: no playable clip in {_config.LibraryFolder}");
+                    continue;
+                }
+
+                var host = HostWindow.CreateFor(display, layer);
+                _hosts.Add(host);
+                _active.Add(new ActivePlayer(display, clip, MpvHost.Start(
+                    _config.MpvPath, host.Handle, clip, _config.Scaling,
+                    PipeNameFor(ordinal), _guard)));
+            }
+            catch (Exception ex)
+            {
+                // One display failing must not take the others down.
+                _errors.Add($"{display.DeviceName}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>The IPC pipe name for one display in the current generation.</summary>
+    /// <remarks>
+    /// It used to be <c>whallee-{loop index}</c>, which collides with a dying predecessor.
+    /// <see cref="StopAll"/> calls <c>Process.Kill</c> and returns without waiting — correctly so,
+    /// since a blocking wait there is the very bug class this branch has fought repeatedly — so the
+    /// next pass reused <c>whallee-0</c> while the old mpv might still hold
+    /// <c>\\.\pipe\whallee-0</c>. mpv treats a failed pipe bind as non-fatal, so the wallpaper
+    /// looked perfect while that display's IPC pipe silently did not exist, and nothing detected it
+    /// until the next restart.
+    ///
+    /// The <c>whallee-</c> prefix is spec-mandated (spec line 210). The three fields after it make
+    /// collision impossible by construction rather than merely unlikely:
+    /// <list type="bullet">
+    /// <item>process id — separates us from any other Whallee process, live or dying;</item>
+    /// <item>generation — increments on every pass, so no pass can reuse a name an earlier pass in
+    /// this process handed out;</item>
+    /// <item>display ordinal — unique within a pass.</item>
+    /// </list>
+    /// A hash of the display's DeviceId was considered for the last field and rejected: a hash
+    /// cannot be *proven* collision-free, and since <see cref="ActivePlayers"/> exposes the name
+    /// directly, nobody needs to re-derive it from display identity. The only residual case is PID
+    /// reuse, which requires this process to have exited — at which point the job object has
+    /// already killed every mpv that held one of our pipes.
+    /// </remarks>
+    private string PipeNameFor(int ordinal) =>
+        $"whallee-{Environment.ProcessId}-{_generation}-{ordinal}";
+
+    /// <summary>
+    /// Finds this display's saved assignment, adding a Shuffle default to config for a display we
+    /// have never seen. The decision itself lives in <see cref="DisplayMatcher"/>, which is pure
+    /// and tested; this wrapper only applies the side effect.
+    /// </summary>
+    private DisplayAssignment MatchAssignment(DisplayInfo display)
+    {
+        var (assignment, created) = DisplayMatcher.Resolve(_config.Displays, display);
+        if (created)
+            _config.Displays.Add(assignment);
+        return assignment;
+    }
+
+    public void StopAll()
+    {
+        foreach (var active in _active) active.Player.Dispose();
+        _active.Clear();
+        foreach (var host in _hosts) host.Dispose();
+        _hosts.Clear();
     }
 
     public void Dispose()
