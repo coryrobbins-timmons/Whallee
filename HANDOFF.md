@@ -9,7 +9,8 @@ environment facts — this document does not repeat them.
 
 **Confirmed** (ran `git status` and `dotnet test` immediately before writing this):
 
-- Branch `main`, HEAD `e8cad5c`, **no uncommitted source changes.** Nothing half-finished.
+- Branch `main`, HEAD `7539272` (the commit that added this file and `CLAUDE.md`).
+  **Nothing uncommitted, nothing half-finished.** The last code commit is `e8cad5c`.
 - Build clean, 0 warnings. `dotnet test` → **29 passed**.
 - `src/` holds `Whallee.Core` and `Whallee.Harness` only. **`Whallee.App` does not exist yet** —
   Plan 2 Task 1 creates it.
@@ -57,7 +58,7 @@ Do not trust these values. The commands are safe — they print and exit.
 
 | Fact | How to check | Last known |
 |---|---|---|
-| HEAD, branch, tree state | `git status`, `git rev-parse --short HEAD` | `e8cad5c` |
+| HEAD, branch, tree state | `git status`, `git rev-parse --short HEAD` | `7539272`, clean |
 | Test count | `dotnet test --nologo -v q` | 29 passing |
 | Build warnings | `dotnet build -v q --nologo` | 0 |
 | Displays and device IDs | `…\Whallee.Harness.exe displays` | 3 displays, real EDID ids |
