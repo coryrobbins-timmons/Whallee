@@ -16,6 +16,25 @@ public partial class MainWindow : Window
         LogView.ItemsSource = ((App)Application.Current).Reporter.Messages;
     }
 
+    /// <summary>
+    /// Closing hides to tray; the tray's Exit is the only way out. Wallpapers are meant to keep
+    /// playing with no window on screen - that is the entire point of the app.
+    /// </summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // A real shutdown must not be cancelled, or the app could never be quit at all: with
+        // ShutdownMode=OnExplicitShutdown nothing else would ever close this window.
+        if (Application.Current is App { IsShuttingDown: true })
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        e.Cancel = true;
+        Hide();
+        base.OnClosing(e);
+    }
+
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         ShowPage(PageSelector.SelectedIndex);
 

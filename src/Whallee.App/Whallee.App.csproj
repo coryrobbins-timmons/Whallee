@@ -13,6 +13,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <!-- PINNED. The 2.4.x line requires net10.0-windows and fails NU1202 here; measured. -->
+    <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Whallee.Core\Whallee.Core.csproj" />
   </ItemGroup>
 </Project>
