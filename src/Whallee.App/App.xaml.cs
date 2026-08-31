@@ -28,7 +28,11 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Engine first, reporter second. Disposing the engine emits teardown messages, and those
+        // are the ones a post-mortem most wants; flushing the log before the engine has finished
+        // talking would throw them away.
         Engine?.Dispose();
+        Reporter.Dispose();
         base.OnExit(e);
     }
 }
