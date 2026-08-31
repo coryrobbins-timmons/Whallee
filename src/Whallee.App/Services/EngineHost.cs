@@ -95,10 +95,17 @@ public sealed class EngineHost : IDisposable
         ReportOutcome();
     }
 
+    /// <summary>
+    /// Persists config WITHOUT re-attaching. For changes the running players do not depend on -
+    /// a discovered ffmpeg path, for instance. Restarting three mpv processes to record where an
+    /// executable lives would be a visible flicker for nothing.
+    /// </summary>
+    public void SaveConfig() => ConfigStore.Save(Config, _configPath);
+
     /// <summary>Persists the current config and re-attaches. Used after the UI changes settings.</summary>
     public void ApplyConfigChange()
     {
-        ConfigStore.Save(Config, _configPath);
+        SaveConfig();
         Restart();
     }
 

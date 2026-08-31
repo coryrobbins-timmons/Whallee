@@ -5,6 +5,8 @@ namespace Whallee.App;
 
 public partial class MainWindow : Window
 {
+    private Pages.LibraryPage? _libraryPage;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -38,7 +40,7 @@ public partial class MainWindow : Window
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         ShowPage(PageSelector.SelectedIndex);
 
-    // Pages are added in Tasks 6 and 9; until then the host shows a placeholder.
+    // The settings page arrives in Task 9; until then index 1 shows a placeholder.
     //
     // PageHost is null-checked because SelectionChanged fires DURING InitializeComponent: the
     // ListBox carries SelectedIndex="0" and raises the event from ItemsControl.EndInit, which
@@ -48,6 +50,19 @@ public partial class MainWindow : Window
     private void ShowPage(int index)
     {
         if (PageHost is null) return;
-        PageHost.Content = new TextBlock { Text = index == 0 ? "Library" : "Settings" };
+
+        if (index == 0)
+        {
+            // BUILT ONCE AND REUSED. The plan creates a new LibraryPage on every switch, which
+            // would re-enumerate displays and re-run the entire thumbnail pass each time the user
+            // clicked between the two pages - and would abandon an in-flight pass part-way,
+            // leaving its ffmpeg processes running for a page nobody can see any more.
+            var app = (App)Application.Current;
+            _libraryPage ??= new Pages.LibraryPage(app.Engine!, app.Reporter);
+            PageHost.Content = _libraryPage;
+            return;
+        }
+
+        PageHost.Content = new TextBlock { Text = "Settings" };
     }
 }
