@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Whallee.Core;
 using Whallee.Core.Configuration;
 using Whallee.Core.Desktop;
@@ -124,10 +125,32 @@ public sealed class EngineHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        // TIMED, and the timings are kept rather than being scaffolding. Teardown runs on the
+        // thread that still owns host windows parented into Explorer's desktop, so anything slow
+        // here is felt by the USER as system-wide input lag - measured at roughly a second. These
+        // three numbers are what say which phase is responsible, and they cost nothing.
+        var total = Stopwatch.StartNew();
+
         // Watcher first: stop new events arriving before tearing the engine down. A restart
         // dispatched into a half-disposed engine is the kind of race that only shows up on the
         // owner's machine, at shutdown, once.
+        var step = Stopwatch.StartNew();
         _watcher?.Dispose();
+        var watcherMs = step.ElapsedMilliseconds;
+
+        // StopAll before Dispose so the players-and-windows phase is timed separately from the job
+        // object. Dispose calls StopAll again, but by then both lists are empty and it is a no-op.
+        step.Restart();
+        _engine?.StopAll();
+        var stopAllMs = step.ElapsedMilliseconds;
+
+        step.Restart();
         _engine?.Dispose();
+        var guardMs = step.ElapsedMilliseconds;
+
+        _reporter.Report(
+            $"teardown {total.ElapsedMilliseconds} ms " +
+            $"(watcher {watcherMs}, players+windows {stopAllMs}, job object {guardMs})");
     }
 }
