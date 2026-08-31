@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Whallee.Core.Displays;
 using Whallee.Core.Interop;
 using static Whallee.Core.Interop.NativeConstants;
 
@@ -21,6 +22,7 @@ public sealed class ShellWatcher : IDisposable
 
     private nint _handle;
     private uint _explorerPid;
+    private string _topology;
     private DateTime _lastRestart = DateTime.MinValue;
     private bool _disposed;
 
@@ -40,6 +42,7 @@ public sealed class ShellWatcher : IDisposable
         _wndProc = HandleMessage;
         _taskbarCreatedMessage = RegisterWindowMessageW("TaskbarCreated");
         _explorerPid = CurrentExplorerPid();
+        _topology = CurrentTopology();
 
         var wndClass = new WNDCLASSEX
         {
@@ -96,7 +99,24 @@ public sealed class ShellWatcher : IDisposable
             }
             else if (msg == WM_DISPLAYCHANGE)
             {
-                _onDisplaysChanged();
+                // Guarded the same way the Explorer branch above guards on _explorerPid, and for
+                // the same reason: the broadcast fires more often than the thing it announces
+                // actually happens. Measured on this machine, one arrives ~0.7 s into EVERY
+                // startup with the layout unchanged, which cost a full teardown and rebuild of
+                // every player on every launch.
+                //
+                // ACCEPTED RISK, stated plainly: if a broadcast ever arrived BEFORE the new layout
+                // was visible to EnumDisplayDevices, this would suppress a real change and the
+                // wallpapers would sit on stale geometry until the next event. WM_DISPLAYCHANGE is
+                // documented as sent after the change is applied, and its own wParam/lParam carry
+                // the NEW mode, so that ordering would be a platform contract violation. Erring the
+                // other way — restarting on every broadcast — was the measured bug, not a theory.
+                var current = CurrentTopology();
+                if (!string.Equals(current, _topology, StringComparison.Ordinal))
+                {
+                    _topology = current;
+                    _onDisplaysChanged();
+                }
             }
         }
         catch (Exception ex)
@@ -115,6 +135,24 @@ public sealed class ShellWatcher : IDisposable
         }
 
         return NativeMethods.DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Snapshot of the monitor layout. Enumeration is a pair of user32 calls with no I/O, which is
+    /// what makes it safe to do from inside the WndProc on the pump thread; anything slower here
+    /// would freeze the user's desktop. A failure returns the previous signature so a transient
+    /// enumeration error cannot masquerade as a layout change and trigger a spurious restart.
+    /// </summary>
+    private string CurrentTopology()
+    {
+        try
+        {
+            return DisplayTopology.Signature(DisplayEnumerator.Enumerate());
+        }
+        catch (Exception)
+        {
+            return _topology ?? "";
+        }
     }
 
     private static uint CurrentExplorerPid()

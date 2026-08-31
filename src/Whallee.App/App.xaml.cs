@@ -32,6 +32,10 @@ public partial class App : Application
         // are the ones a post-mortem most wants; flushing the log before the engine has finished
         // talking would throw them away.
         Engine?.Dispose();
+
+        // Written last, so the log distinguishes a clean exit from a process that died: a session
+        // with no end line ended badly, and that is worth knowing without digging in the event log.
+        Reporter.Report("=== session end ===");
         Reporter.Dispose();
         base.OnExit(e);
     }
