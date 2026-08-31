@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Threading;
 using H.NotifyIcon.Core;
 
 namespace Whallee.App.Tray;
@@ -15,12 +17,30 @@ public sealed class TrayIcon : IDisposable
     private readonly TrayIconWithContextMenu _icon;
     private bool _disposed;
 
+    /// <param name="onShow">Bring the window back. Marshalled to the UI thread — see remarks.</param>
+    /// <param name="onExit">Quit the app. Marshalled to the UI thread — see remarks.</param>
+    /// <remarks>
+    /// EVERY CALLBACK IS MARSHALLED, and that is not defensive tidiness. H.NotifyIcon raises menu
+    /// clicks and mouse events on its own message-window thread, NOT the WPF Dispatcher thread.
+    /// Touching a Window or calling Application.Shutdown from there hits Dispatcher.VerifyAccess,
+    /// which throws InvalidOperationException — unhandled, on a non-UI thread, so it kills the
+    /// process. Measured: choosing tray Exit crashed the app instead of quitting it, and Windows
+    /// Error Reporting took roughly ten seconds to tear it down. The mpv children died with it via
+    /// the job object, so the failure looked like a slow but successful exit.
+    ///
+    /// InvokeAsync rather than Invoke: the tray's thread must not block waiting on the UI thread,
+    /// which during a restart can be busy inside the engine for seconds at a time.
+    /// </remarks>
     public TrayIcon(Action onShow, Action onExit)
     {
+        // Captured here because the constructor runs on the UI thread.
+        var dispatcher = Application.Current.Dispatcher;
+        void OnUiThread(Action action) => dispatcher.InvokeAsync(action);
+
         var menu = new PopupMenu();
-        menu.Items.Add(new PopupMenuItem("Show Whallee", (_, _) => onShow()));
+        menu.Items.Add(new PopupMenuItem("Show Whallee", (_, _) => OnUiThread(onShow)));
         menu.Items.Add(new PopupMenuSeparator());
-        menu.Items.Add(new PopupMenuItem("Exit", (_, _) => onExit()));
+        menu.Items.Add(new PopupMenuItem("Exit", (_, _) => OnUiThread(onExit)));
 
         _icon = new TrayIconWithContextMenu
         {
@@ -37,7 +57,7 @@ public sealed class TrayIcon : IDisposable
 
         _icon.MessageWindow.MouseEventReceived += (_, args) =>
         {
-            if (args.MouseEvent == MouseEvent.IconDoubleClick) onShow();
+            if (args.MouseEvent == MouseEvent.IconDoubleClick) OnUiThread(onShow);
         };
 
         _icon.Create();
