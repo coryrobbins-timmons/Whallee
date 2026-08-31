@@ -9,6 +9,11 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         ShowPage(0);
+
+        // Bound after InitializeComponent, so the engine's start-up messages - queued while
+        // App.OnStartup ran Engine.Start() before this window existed - appear as soon as the
+        // collection is attached.
+        LogView.ItemsSource = ((App)Application.Current).Reporter.Messages;
     }
 
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) =>

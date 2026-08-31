@@ -8,11 +8,17 @@
             <ColumnDefinition Width="180" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <ListBox x:Name="PageSelector" Margin="8" SelectedIndex="0"
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="120" />
+        </Grid.RowDefinitions>
+        <ListBox x:Name="PageSelector" Grid.Row="0" Margin="8" SelectedIndex="0"
                  SelectionChanged="PageSelector_SelectionChanged">
             <ListBoxItem Content="Library" />
             <ListBoxItem Content="Settings" />
         </ListBox>
-        <ContentControl x:Name="PageHost" Grid.Column="1" Margin="8" />
+        <ContentControl x:Name="PageHost" Grid.Row="0" Grid.Column="1" Margin="8" />
+        <ListBox x:Name="LogView" Grid.Row="1" Grid.ColumnSpan="2" Margin="8"
+                 FontFamily="Consolas" FontSize="11" />
     </Grid>
 </Window>
