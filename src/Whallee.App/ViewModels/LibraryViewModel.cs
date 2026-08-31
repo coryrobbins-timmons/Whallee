@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using Whallee.App.Services;
 using Whallee.Core;
 using Whallee.Core.Configuration;
@@ -112,6 +113,65 @@ public sealed class LibraryViewModel
 
         _reporter.Report($"applying {relative} to {deviceName ?? "all displays"}");
         _engine.ApplyConfigChange();
+    }
+
+    /// <summary>
+    /// Copies a file into the library folder. Returns the path the clip now lives at, or null if
+    /// its extension is not one the engine can play.
+    /// </summary>
+    /// <remarks>
+    /// EVERY FILESYSTEM CALL IS INSIDE THE Task.Run, not just the copy. The plan left
+    /// CreateDirectory and the File.Exists probes on the UI thread; this thread owns host windows
+    /// parented into Explorer's desktop, and the library folder is OneDrive-backed here, where
+    /// those are precisely the calls that stall. Same reasoning that moved the directory listing
+    /// off the UI thread in LoadAsync.
+    ///
+    /// An existing name is disambiguated, never overwritten: PinnedPath refers to a clip BY NAME,
+    /// so overwriting would silently change what a monitor is playing.
+    /// </remarks>
+    public async Task<string?> ImportFileAsync(string sourcePath, CancellationToken ct = default)
+    {
+        var extension = Path.GetExtension(sourcePath);
+        if (!ClipResolver.SupportedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            return null;
+
+        var libraryFolder = _engine.Config.LibraryFolder;
+
+        return await Task.Run(() =>
+        {
+            Directory.CreateDirectory(libraryFolder);
+
+            // Picking a file that already lives in the library is something the file dialog openly
+            // invites, and the disambiguation loop below would turn it into a silent duplicate -
+            // two tiles, two names, one clip. Not the plan's behaviour; added because a duplicate
+            // is indistinguishable from a bug once it is on screen.
+            var sourceFolder = Path.GetDirectoryName(Path.GetFullPath(sourcePath));
+            if (sourceFolder is not null && string.Equals(
+                    sourceFolder.TrimEnd(Path.DirectorySeparatorChar),
+                    Path.GetFullPath(libraryFolder).TrimEnd(Path.DirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                // NAMES THE FOLDER IT WAS PICKED FROM. The first version of this message said only
+                // "X is already in the library", which cannot be told apart from a misfiring
+                // comparison - it cost a round trip on exactly that ambiguity.
+                _reporter.Report($"not copied: {Path.GetFileName(sourcePath)} was picked from the "
+                                 + $"library folder itself ({sourceFolder})");
+                return sourcePath;
+            }
+
+            var target = Path.Combine(libraryFolder, Path.GetFileName(sourcePath));
+            var counter = 1;
+            while (File.Exists(target))
+            {
+                var name = Path.GetFileNameWithoutExtension(sourcePath)
+                           + $" ({counter++})" + extension;
+                target = Path.Combine(libraryFolder, name);
+            }
+
+            File.Copy(sourcePath, target);
+            _reporter.Report($"added {Path.GetFileName(target)} to the library");
+            return target;
+        }, ct).ConfigureAwait(true);   // back to the UI thread; the caller refreshes the grid
     }
 
     /// <summary>

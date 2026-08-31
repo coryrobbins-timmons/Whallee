@@ -62,6 +62,47 @@ public partial class LibraryPage : UserControl
         }
     }
 
+    /// <summary>
+    /// async void, because a Click handler that awaits has no other shape - which is exactly why
+    /// the body is wrapped. The plan's version had a try/finally and NO catch: File.Copy throws for
+    /// a locked source, a full disk, or a OneDrive file that will not hydrate, and an exception
+    /// escaping an async void handler reaches the Dispatcher unhandled and terminates the process.
+    /// Same defect class as the tray callbacks and Tile_Click.
+    /// </summary>
+    private async void AddFromFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Add a video to the library",
+            Filter = "Video files|*.mp4;*.mkv;*.webm;*.mov|All files|*.*",
+            Multiselect = false
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        // The copy and the thumbnail pass that follows it are both slow enough to click through.
+        AddFromFile.IsEnabled = false;
+        try
+        {
+            var added = await _model.ImportFileAsync(dialog.FileName);
+            if (added is null)
+            {
+                MessageBox.Show("That file type is not supported. Use .mp4, .mkv, .webm or .mov.",
+                    "Whallee", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            await _model.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not add that file: {ex.Message}");
+        }
+        finally
+        {
+            AddFromFile.IsEnabled = true;
+        }
+    }
+
     private void Tile_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string clipPath }) return;

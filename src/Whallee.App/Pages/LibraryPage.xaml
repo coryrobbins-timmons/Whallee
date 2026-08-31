@@ -13,7 +13,8 @@
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
             <TextBlock Text="Apply to:" VerticalAlignment="Center" Margin="0,0,8,0" />
             <ComboBox x:Name="TargetSelector" Width="220" SelectedIndex="0" />
-            <Button x:Name="AddFromFile" Content="Add from file…" Margin="16,0,0,0" Padding="8,2" />
+            <Button x:Name="AddFromFile" Content="Add from file…" Margin="16,0,0,0" Padding="8,2"
+                    Click="AddFromFile_Click" />
         </StackPanel>
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="TileHost">
