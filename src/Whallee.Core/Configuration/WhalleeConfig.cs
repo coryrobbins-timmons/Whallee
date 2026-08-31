@@ -17,6 +17,9 @@ public sealed class WhalleeConfig
     public int Version { get; set; } = 1;
     public string LibraryFolder { get; set; } = "";
     public string MpvPath { get; set; } = "";
+
+    /// <summary>Empty means "discover it" — see FfmpegLocator. Set to override discovery.</summary>
+    public string FfmpegPath { get; set; } = "";
     public ScalingMode Scaling { get; set; } = ScalingMode.FillCrop;
     public bool StartWithWindows { get; set; }
     public List<DisplayAssignment> Displays { get; set; } = new();
