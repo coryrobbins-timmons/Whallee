@@ -59,6 +59,12 @@ public partial class MainWindow : Window
             // leaving its ffmpeg processes running for a page nobody can see any more.
             var app = (App)Application.Current;
             _libraryPage ??= new Pages.LibraryPage(app.Engine!, app.Reporter);
+
+            // Cheap (two user32 calls) and it keeps the target dropdown honest: because the page
+            // is reused, its display list would otherwise be frozen at whatever was attached when
+            // the window first opened.
+            _libraryPage.RefreshTargets();
+
             PageHost.Content = _libraryPage;
             return;
         }

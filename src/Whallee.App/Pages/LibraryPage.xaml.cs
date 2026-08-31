@@ -26,6 +26,19 @@ public partial class LibraryPage : UserControl
     }
 
     /// <summary>
+    /// Re-reads the attached displays. Called each time the page is shown, because this instance is
+    /// reused rather than rebuilt and would otherwise list whatever was attached at startup.
+    /// </summary>
+    public void RefreshTargets()
+    {
+        _model.RefreshTargets();
+
+        // Rebuilding the list drops the selection; only actually happens when the displays changed.
+        if (TargetSelector.SelectedIndex < 0 && _model.Targets.Count > 0)
+            TargetSelector.SelectedIndex = 0;
+    }
+
+    /// <summary>
     /// async void, because that is what a Loaded handler must be - which is exactly why the body is
     /// wrapped. An exception escaping an async void handler goes to the Dispatcher unhandled and
     /// terminates the process; thumbnail work launches ffmpeg and touches OneDrive-backed files, so
@@ -49,6 +62,25 @@ public partial class LibraryPage : UserControl
         }
     }
 
-    // Applying a clip is Task 7.
-    private void Tile_Click(object sender, RoutedEventArgs e) { }
+    private void Tile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string clipPath }) return;
+
+        var index = TargetSelector.SelectedIndex;
+        if (index < 0 || index >= _model.TargetDeviceNames.Count) return;
+
+        try
+        {
+            // Runs a full engine restart (~3 s) inline on the UI thread. That is correct here and
+            // not an oversight: the host windows belong to this thread, and Restart pumps
+            // throughout, so the desktop stays responsive. It CAN re-enter XAML, so nothing after
+            // this call may assume the UI is untouched.
+            _model.ApplyClip(clipPath, _model.TargetDeviceNames[index]);
+        }
+        catch (Exception ex)
+        {
+            // A click handler is a Dispatcher callback: an escaping exception terminates the app.
+            _reporter.Report($"could not apply that clip: {ex.Message}");
+        }
+    }
 }

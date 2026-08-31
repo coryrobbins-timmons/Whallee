@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Whallee.App.Services;
 using Whallee.Core;
+using Whallee.Core.Configuration;
 using Whallee.Core.Displays;
 using Whallee.Core.Media;
 
@@ -12,12 +13,15 @@ public sealed class LibraryViewModel
     private readonly UiReporter _reporter;
     private readonly ThumbnailService _thumbnails;
     private readonly bool _canMakeThumbnails;
+    private readonly List<string?> _targetDeviceNames = new();
 
     public ObservableCollection<ClipTile> Tiles { get; } = new();
-    public IReadOnlyList<string> Targets { get; }
+
+    /// <summary>"All displays", then one entry per attached display.</summary>
+    public ObservableCollection<string> Targets { get; } = new();
 
     /// <summary>Device names in the same order as <see cref="Targets"/>, null for "All displays".</summary>
-    public IReadOnlyList<string?> TargetDeviceNames { get; }
+    public IReadOnlyList<string?> TargetDeviceNames => _targetDeviceNames;
 
     public LibraryViewModel(EngineHost engine, UiReporter reporter)
     {
@@ -41,11 +45,73 @@ public sealed class LibraryViewModel
         }
 
         _thumbnails = new ThumbnailService(ffmpeg, ThumbnailService.DefaultCacheFolder);
+        RefreshTargets();
+    }
 
+    /// <summary>
+    /// Rebuilds the target list from the displays attached right now.
+    /// </summary>
+    /// <remarks>
+    /// EXISTS BECAUSE THE PAGE IS CACHED. The plan rebuilt the whole page on every switch, so its
+    /// target list was incidentally always fresh; reusing one instance means the list would
+    /// otherwise be frozen at whatever was attached when the window first opened. Called whenever
+    /// the page is shown.
+    ///
+    /// Returns early when nothing changed, which is the normal case - rebuilding the collection
+    /// clears the ComboBox selection, and silently resetting the user's chosen target every time
+    /// they switch pages would be its own bug.
+    /// </remarks>
+    public void RefreshTargets()
+    {
         var displays = DisplayEnumerator.Enumerate();
-        Targets = new[] { "All displays" }.Concat(displays.Select(d => d.DeviceName)).ToList();
-        TargetDeviceNames = new string?[] { null }
+        var deviceNames = new string?[] { null }
             .Concat(displays.Select(d => (string?)d.DeviceName)).ToList();
+
+        if (deviceNames.SequenceEqual(_targetDeviceNames)) return;
+
+        _targetDeviceNames.Clear();
+        _targetDeviceNames.AddRange(deviceNames);
+
+        Targets.Clear();
+        Targets.Add("All displays");
+        foreach (var display in displays) Targets.Add(display.DeviceName);
+    }
+
+    /// <summary>
+    /// Pins a clip to one display, or to all of them. Writes config and re-attaches.
+    /// </summary>
+    public void ApplyClip(string clipPath, string? deviceName)
+    {
+        // PinnedPath is stored RELATIVE to the library folder. ClipResolver rejects an absolute
+        // path that points outside the library, and Path.Combine would silently ignore the library
+        // folder entirely for any rooted value.
+        var relative = System.IO.Path.GetFileName(clipPath);
+
+        var applied = 0;
+        foreach (var assignment in _engine.Config.Displays)
+        {
+            if (deviceName is not null &&
+                !string.Equals(assignment.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            assignment.Mode = DisplayMode.Pinned;
+            assignment.PinnedPath = relative;
+            applied++;
+        }
+
+        if (applied == 0)
+        {
+            // Only displays already in config can be updated: a display attached but never seen by
+            // Start() has no assignment row. Start() creates rows for everything attached, so this
+            // should be unreachable - but the plan flags "All displays appears to skip a monitor"
+            // as a real symptom, and a silent no-op is exactly what makes that hard to diagnose.
+            _reporter.Report(
+                $"nothing applied — no saved display matches {deviceName ?? "any attached display"}");
+            return;
+        }
+
+        _reporter.Report($"applying {relative} to {deviceName ?? "all displays"}");
+        _engine.ApplyConfigChange();
     }
 
     /// <summary>
