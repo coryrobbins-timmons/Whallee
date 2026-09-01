@@ -175,6 +175,19 @@ public static class YouTubeImporter
         // file when we only want the opening minute or less of it.
         var wanted = cCeiling < ImportPlanner.ContentCeiling ? cCeiling : ImportPlanner.ContentCeiling;
         var maxBytes = ImportPlanner.BytesForSeconds(wanted, media.ContentLength, media.Duration);
+
+        // BytesForSeconds returns 0 when ContentLength or Duration is non-positive, which would
+        // otherwise fetch nothing and fall through to the "YouTube refused to send any of this
+        // video" message below - blaming the network for a request that was never made. The old
+        // fixed-constant maxBytes could never be empty; this computed one can, so guard it
+        // explicitly. Unreachable today because DirectMediaUrl.Parse rejects a non-positive dur
+        // or clen before a DirectMedia is ever constructed, but DirectMedia is a public record and
+        // this call site should not depend on that.
+        if (maxBytes <= 0)
+            return new ImportOutcome(false, null,
+                "Could not work out how much of this video to fetch - its length or size was " +
+                "not reported. This is not a network problem.", "C", TimeSpan.Zero);
+
         var fetched = await RangePrefixFetcher.FetchPrefixAsync(
             media, prefix, maxBytes, null,
             new Progress<long>(b => progress?.Report($"{b / 1024 / 1024} MiB fetched…")),

@@ -72,16 +72,12 @@ public class ImportPlannerTests
     }
 
     [Fact]
-    public void PredictedObtainable_IsIndependentOfBitrateAndFileSize()
+    public void PredictedObtainable_SaturatesAtTheCeilingForAnyDurationPastIt()
     {
-        // This is the finding itself: measurements at ~1.0, ~3.8 and ~9.0 Mbps (spanning >10x in
-        // bytes served: 6, 26, 64 MiB) all converged on ~60 s of content. The new signature
-        // doesn't even accept a byte count or content length - only durations - so it is
-        // structurally impossible to reintroduce bitrate arithmetic without changing the
-        // signature back. Pinning that: requesting the same 300 s against videos of very
-        // different total length (all longer than the ceiling) must give the identical answer,
-        // where the old byte-ceiling model would have given three different ones depending on
-        // each video's bitrate.
+        // BITRATE INDEPENDENCE IS ENFORCED BY THE SIGNATURE, NOT BY THIS TEST: PredictedObtainable
+        // takes no clen. Reintroducing byte arithmetic would break every call site at compile time,
+        // which is a stronger guarantee than any assertion here could give. What this test pins is
+        // narrower - that the min-chain saturates identically once the video outruns the ceiling.
         var fromA100sVideo = ImportPlanner.PredictedObtainable(
             TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(100));
         var fromA1HourVideo = ImportPlanner.PredictedObtainable(
@@ -89,9 +85,9 @@ public class ImportPlannerTests
         var fromA12HourVideo = ImportPlanner.PredictedObtainable(
             TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(43_200));
 
+        Assert.Equal(ImportPlanner.ContentCeiling, fromA100sVideo);
         Assert.Equal(ImportPlanner.ContentCeiling, fromA1HourVideo);
-        Assert.Equal(fromA1HourVideo, fromA12HourVideo);
-        Assert.True(fromA100sVideo <= fromA1HourVideo);   // shorter than ceiling still caps at its own length
+        Assert.Equal(ImportPlanner.ContentCeiling, fromA12HourVideo);
     }
 
     [Fact]
@@ -157,6 +153,20 @@ public class ImportPlannerTests
     {
         Assert.Equal(0, ImportPlanner.BytesForSeconds(
             TimeSpan.FromSeconds(seconds), clen, TimeSpan.FromSeconds(durationSeconds)));
+    }
+
+    [Fact]
+    public void BytesForSeconds_HandlesRealMultiGigabyteMagnitudes()
+    {
+        // 20,679,065,225 bytes / 43,200 s is the measured clen/duration of one of the videos this
+        // code was built against - the same order of magnitude TrimTargetFor is already tested at.
+        // Wanting 60 s at the default 25% margin: (60/43200)*1.25*20,679,065,225 = 35,901,154.90...,
+        // computed by hand; asserted within a tight tolerance that would still catch a
+        // precision-loss or overflow error at this scale.
+        var bytes = ImportPlanner.BytesForSeconds(
+            TimeSpan.FromSeconds(60), 20_679_065_225, TimeSpan.FromSeconds(43_200));
+
+        Assert.InRange(bytes, 35_901_150, 35_901_160);
     }
 
     [Fact]
