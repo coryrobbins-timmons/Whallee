@@ -54,31 +54,109 @@ public class ImportPlannerTests
     }
 
     [Fact]
-    public void PredictedObtainable_UsesTheMeasuredWindmillsNumbers()
+    public void PredictedObtainable_PassesThroughARequestUnderTheCeiling()
     {
-        // Spec's measured case: clen 5,330,721,038 bytes over 43,200 s at ~1 Mbps gave ~45-50 s
-        // from a 6 MiB ceiling. This is the number the dialog shows BEFORE downloading.
         var predicted = ImportPlanner.PredictedObtainable(
-            5_330_721_038, TimeSpan.FromSeconds(43_200), ImportPlanner.ByteCeiling);
+            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(3600));
 
-        Assert.InRange(predicted.TotalSeconds, 45, 52);
+        Assert.Equal(TimeSpan.FromSeconds(30), predicted);
     }
 
     [Fact]
-    public void PredictedObtainable_ShrinksAsBitrateRises()
+    public void PredictedObtainable_CapsARequestOverTheCeiling()
     {
-        // Spec: ~5 Mbps typical 1080p yields only ~10 s from the same ceiling.
         var predicted = ImportPlanner.PredictedObtainable(
-            625_000_000, TimeSpan.FromSeconds(1_000), ImportPlanner.ByteCeiling);
+            TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(3600));
 
-        Assert.InRange(predicted.TotalSeconds, 8, 12);
+        Assert.Equal(ImportPlanner.ContentCeiling, predicted);
     }
 
     [Fact]
-    public void PredictedObtainable_IsZeroForNonsenseInput()
+    public void PredictedObtainable_IsIndependentOfBitrateAndFileSize()
     {
-        Assert.Equal(TimeSpan.Zero,
-            ImportPlanner.PredictedObtainable(0, TimeSpan.FromSeconds(10), ImportPlanner.ByteCeiling));
+        // This is the finding itself: measurements at ~1.0, ~3.8 and ~9.0 Mbps (spanning >10x in
+        // bytes served: 6, 26, 64 MiB) all converged on ~60 s of content. The new signature
+        // doesn't even accept a byte count or content length - only durations - so it is
+        // structurally impossible to reintroduce bitrate arithmetic without changing the
+        // signature back. Pinning that: requesting the same 300 s against videos of very
+        // different total length (all longer than the ceiling) must give the identical answer,
+        // where the old byte-ceiling model would have given three different ones depending on
+        // each video's bitrate.
+        var fromA100sVideo = ImportPlanner.PredictedObtainable(
+            TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(100));
+        var fromA1HourVideo = ImportPlanner.PredictedObtainable(
+            TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(3_600));
+        var fromA12HourVideo = ImportPlanner.PredictedObtainable(
+            TimeSpan.FromSeconds(300), TimeSpan.FromSeconds(43_200));
+
+        Assert.Equal(ImportPlanner.ContentCeiling, fromA1HourVideo);
+        Assert.Equal(fromA1HourVideo, fromA12HourVideo);
+        Assert.True(fromA100sVideo <= fromA1HourVideo);   // shorter than ceiling still caps at its own length
+    }
+
+    [Fact]
+    public void PredictedObtainable_CapsAtAShorterVideosOwnDuration()
+    {
+        var predicted = ImportPlanner.PredictedObtainable(
+            TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(20));
+
+        Assert.Equal(TimeSpan.FromSeconds(20), predicted);
+    }
+
+    [Theory]
+    [InlineData(0, 10)]
+    [InlineData(-5, 10)]
+    [InlineData(30, 0)]
+    [InlineData(30, -10)]
+    public void PredictedObtainable_IsZeroForNonsenseInput(int requestedSeconds, int durationSeconds)
+    {
+        Assert.Equal(TimeSpan.Zero, ImportPlanner.PredictedObtainable(
+            TimeSpan.FromSeconds(requestedSeconds), TimeSpan.FromSeconds(durationSeconds)));
+    }
+
+    [Fact]
+    public void BytesForSeconds_IsProportionalToDuration()
+    {
+        // 600 s of a 10,000,000-byte, 6,000 s file at the default 25% margin: (600/6000)*1.25 *
+        // 10,000,000 = 1,250,000 bytes, verifiable by hand.
+        var bytes = ImportPlanner.BytesForSeconds(
+            TimeSpan.FromSeconds(600), 10_000_000, TimeSpan.FromSeconds(6_000));
+
+        Assert.Equal(1_250_000, bytes);
+    }
+
+    [Fact]
+    public void BytesForSeconds_MarginWidensTheRequest()
+    {
+        var noMargin = ImportPlanner.BytesForSeconds(
+            TimeSpan.FromSeconds(600), 10_000_000, TimeSpan.FromSeconds(6_000), margin: 0);
+        var withMargin = ImportPlanner.BytesForSeconds(
+            TimeSpan.FromSeconds(600), 10_000_000, TimeSpan.FromSeconds(6_000), margin: 0.25);
+
+        Assert.True(withMargin > noMargin, "a positive margin must ask for more, not less");
+    }
+
+    [Fact]
+    public void BytesForSeconds_ClampsAtContentLength()
+    {
+        // Wanting the whole (short) file plus a 25% margin must not ask for more bytes than exist.
+        var bytes = ImportPlanner.BytesForSeconds(
+            TimeSpan.FromSeconds(59), 10_000_000, TimeSpan.FromSeconds(60));
+
+        Assert.Equal(10_000_000, bytes);
+    }
+
+    [Theory]
+    [InlineData(0, 10_000_000, 100)]
+    [InlineData(-5, 10_000_000, 100)]
+    [InlineData(30, 0, 100)]
+    [InlineData(30, -1, 100)]
+    [InlineData(30, 10_000_000, 0)]
+    [InlineData(30, 10_000_000, -1)]
+    public void BytesForSeconds_IsZeroForNonsenseInput(int seconds, long clen, int durationSeconds)
+    {
+        Assert.Equal(0, ImportPlanner.BytesForSeconds(
+            TimeSpan.FromSeconds(seconds), clen, TimeSpan.FromSeconds(durationSeconds)));
     }
 
     [Fact]

@@ -169,8 +169,14 @@ public static class YouTubeImporter
         if (media is null) return null;
 
         var prefix = stem + "-prefix.mp4";
+
+        // The server's own refusal is the real limit (ContentCeiling seconds of content, not a
+        // byte count) - this only sizes the request so we don't ask for a whole multi-gigabyte
+        // file when we only want the opening minute or less of it.
+        var wanted = cCeiling < ImportPlanner.ContentCeiling ? cCeiling : ImportPlanner.ContentCeiling;
+        var maxBytes = ImportPlanner.BytesForSeconds(wanted, media.ContentLength, media.Duration);
         var fetched = await RangePrefixFetcher.FetchPrefixAsync(
-            media, prefix, ImportPlanner.ByteCeiling * 4, null,
+            media, prefix, maxBytes, null,
             new Progress<long>(b => progress?.Report($"{b / 1024 / 1024} MiB fetched…")),
             ct).ConfigureAwait(false);
 

@@ -8,14 +8,23 @@ namespace Whallee.Core.Media;
 public static class ImportPlanner
 {
     /// <summary>
-    /// How many bytes this network will hand over before returning 403, measured 2026-08-19.
+    /// How much video content this network will serve before refusing, measured 2026-09-01.
     /// </summary>
     /// <remarks>
-    /// AN OBSERVATION FROM ONE VIDEO, NOT A LAW. Three 2 MiB range requests succeeded and the
-    /// fourth failed, persistently, unaffected by re-resolving the URL or waiting two minutes.
-    /// Whether the allowance is per-video or per-IP is UNMEASURED - see the harness `budget` verb.
+    /// A DURATION, NOT A BYTE COUNT, and that distinction is the whole point. Three measurements
+    /// at ~1.0, ~3.8 and ~9.0 Mbps were served 6 MiB, 26 MiB and 64 MiB respectively - byte counts
+    /// spanning more than 10x - but 51.0 s, 56.9 s and 59.8 s of content. Bracketing each between
+    /// the bytes served and what the next chunk would have completed, all three intervals
+    /// intersect at 59.8-61.3 s.
+    ///
+    /// The earlier model was a 6 MiB byte ceiling, which was simply the same 60 s allowance
+    /// measured on a low-bitrate stream. DO NOT "correct" this back into a byte count at a larger
+    /// value - that repeats the original mistake with a bigger number.
+    ///
+    /// The allowance is PER VIDEO: a second video requested immediately after a first was refused
+    /// received a full fresh allowance on the same connection.
     /// </remarks>
-    public const long ByteCeiling = 6 * 1024 * 1024;
+    public static readonly TimeSpan ContentCeiling = TimeSpan.FromSeconds(60);
 
     /// <summary>Above this, the dialog demands a section instead of offering the whole video.</summary>
     public static readonly TimeSpan SectionRequiredAbove = TimeSpan.FromMinutes(10);
@@ -73,21 +82,36 @@ public static class ImportPlanner
     public static bool RequiresSection(TimeSpan duration) => duration > SectionRequiredAbove;
 
     /// <summary>
-    /// How many seconds the byte ceiling is expected to yield, shown BEFORE downloading.
+    /// How many seconds this network is expected to yield, shown BEFORE downloading.
     /// </summary>
     /// <remarks>
-    /// The ceiling is measured in bytes, so the usable length depends entirely on bitrate: about
-    /// 45-50 s of 1 Mbps ambient footage, but only ~10 s of a detailed 5 Mbps 1080p source. Telling
-    /// the user up front is the difference between a known limit and an apparent failure.
+    /// Independent of bitrate and file size, which is the surprising part and the reason the old
+    /// signature took clen. Telling the user up front is the difference between a known limit and
+    /// an apparent failure.
     /// </remarks>
-    public static TimeSpan PredictedObtainable(
-        long clen, TimeSpan duration, long byteCeiling = ByteCeiling)
+    public static TimeSpan PredictedObtainable(TimeSpan requested, TimeSpan videoDuration)
     {
-        if (clen <= 0 || duration <= TimeSpan.Zero) return TimeSpan.Zero;
+        if (requested <= TimeSpan.Zero || videoDuration <= TimeSpan.Zero) return TimeSpan.Zero;
 
-        var seconds = Math.Min((double)byteCeiling / clen * duration.TotalSeconds,
-                               duration.TotalSeconds);
-        return TimeSpan.FromSeconds(seconds);
+        var limit = ContentCeiling < videoDuration ? ContentCeiling : videoDuration;
+        return requested < limit ? requested : limit;
+    }
+
+    /// <summary>Bytes to request in order to receive roughly <paramref name="seconds"/> of video.</summary>
+    /// <remarks>
+    /// clen/duration is an AVERAGE bitrate, so a variable-bitrate stream's opening seconds can be
+    /// denser than the average. The margin covers that: over-requesting is free because the server
+    /// simply refuses the surplus and the fetch loop stops, whereas under-requesting silently
+    /// returns a shorter clip than the network would have allowed.
+    /// </remarks>
+    public static long BytesForSeconds(TimeSpan seconds, long clen, TimeSpan duration,
+                                       double margin = 0.25)
+    {
+        if (seconds <= TimeSpan.Zero || clen <= 0 || duration <= TimeSpan.Zero) return 0;
+
+        var fraction = seconds.TotalSeconds / duration.TotalSeconds * (1 + margin);
+        var bytes = clen * fraction;
+        return bytes >= clen ? clen : (long)bytes;
     }
 
     /// <summary>

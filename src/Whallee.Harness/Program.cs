@@ -80,8 +80,8 @@ switch (args[0])
                 if (media is null) { Console.WriteLine("could not resolve a direct URL"); continue; }
 
                 Console.WriteLine($"clen {media.ContentLength:N0} bytes, dur {media.Duration}");
-                Console.WriteLine($"predicted from 6 MiB: " +
-                    $"{ImportPlanner.PredictedObtainable(media.ContentLength, media.Duration).TotalSeconds:F1} s");
+                Console.WriteLine($"predicted from {ImportPlanner.ContentCeiling.TotalSeconds:F0}s ceiling: " +
+                    $"{ImportPlanner.PredictedObtainable(media.Duration, media.Duration).TotalSeconds:F1} s");
 
                 var fetched = await RangePrefixFetcher.MeasureCeilingAsync(
                     media, Console.WriteLine, CancellationToken.None);
