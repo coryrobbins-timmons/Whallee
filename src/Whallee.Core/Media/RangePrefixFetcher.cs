@@ -26,7 +26,13 @@ public static class RangePrefixFetcher
     private static readonly HttpClient Client = new(new HttpClientHandler
     {
         AutomaticDecompression = DecompressionMethods.None
-    });
+    })
+    {
+        // 30 s per request, not the 100 s default. The default COMPOUNDS: 3 chunks x 3 retries is
+        // ~10 minutes for a normal fetch and ~58 for MeasureCeilingAsync, which is far past what
+        // a user driving an import will wait. 30 s is generous for a 2 MiB chunk.
+        Timeout = TimeSpan.FromSeconds(30)
+    };
 
     /// <summary>
     /// Writes as much of the file's prefix as the server will hand over. Returns bytes written.
@@ -44,59 +50,89 @@ public static class RangePrefixFetcher
         var consecutiveFailures = 0;
 
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-        await using var file = new FileStream(
-            destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
 
-        while (written < ceiling && consecutiveFailures < MaxConsecutiveFailures)
+        try
         {
-            ct.ThrowIfCancellationRequested();
+            await using var file = new FileStream(
+                destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
 
-            var from = written;
-            var to = Math.Min(from + ChunkSize, ceiling) - 1;
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, media.Url);
-            request.Headers.Range = new RangeHeaderValue(from, to);
-
-            HttpResponseMessage? response = null;
-            try
+            while (written < ceiling && consecutiveFailures < MaxConsecutiveFailures)
             {
-                response = await Client.SendAsync(
-                    request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
 
-                // 206 is the success case. A 200 here would mean the server ignored the Range and
-                // is about to send the whole multi-GB file - refuse it rather than swallow it.
-                if (response.StatusCode != HttpStatusCode.PartialContent)
+                var from = written;
+                var to = Math.Min(from + ChunkSize, ceiling) - 1;
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, media.Url);
+                request.Headers.Range = new RangeHeaderValue(from, to);
+
+                HttpResponseMessage? response = null;
+                try
+                {
+                    response = await Client.SendAsync(
+                        request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+                    // 206 is the success case. A 200 here would mean the server ignored the Range and
+                    // is about to send the whole multi-GB file - refuse it rather than swallow it.
+                    if (response.StatusCode != HttpStatusCode.PartialContent)
+                    {
+                        consecutiveFailures++;
+                        log?.Invoke($"chunk at {from:N0}: {(int)response.StatusCode} " +
+                                    $"{response.StatusCode} (failure {consecutiveFailures})");
+                        continue;
+                    }
+
+                    await using var stream = await response.Content
+                        .ReadAsStreamAsync(ct).ConfigureAwait(false);
+                    var copied = await CopyCountingAsync(stream, file, ct).ConfigureAwait(false);
+
+                    if (copied <= 0) { consecutiveFailures++; continue; }
+
+                    written += copied;
+                    consecutiveFailures = 0;
+                    progress?.Report(written);
+                    log?.Invoke($"chunk at {from:N0}: 206, {copied:N0} bytes (total {written:N0})");
+                }
+                catch (HttpRequestException ex)
                 {
                     consecutiveFailures++;
-                    log?.Invoke($"chunk at {from:N0}: {(int)response.StatusCode} " +
-                                $"{response.StatusCode} (failure {consecutiveFailures})");
-                    continue;
+                    log?.Invoke($"chunk at {from:N0}: {ex.Message} (failure {consecutiveFailures})");
                 }
-
-                await using var stream = await response.Content
-                    .ReadAsStreamAsync(ct).ConfigureAwait(false);
-                var copied = await CopyCountingAsync(stream, file, ct).ConfigureAwait(false);
-
-                if (copied <= 0) { consecutiveFailures++; continue; }
-
-                written += copied;
-                consecutiveFailures = 0;
-                progress?.Report(written);
-                log?.Invoke($"chunk at {from:N0}: 206, {copied:N0} bytes (total {written:N0})");
+                catch (IOException ex)
+                {
+                    // A mid-body connection reset arrives here, NOT as HttpRequestException: stream
+                    // reads are not covered by SendAsync's exception translation. Without this, one
+                    // dropped connection aborts the entire download instead of retrying a chunk.
+                    consecutiveFailures++;
+                    log?.Invoke($"chunk at {from:N0}: {ex.Message} (failure {consecutiveFailures})");
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // HttpClient's own timeout arrives as TaskCanceledException, which IS an
+                    // OperationCanceledException - indistinguishable from a user cancel by type alone.
+                    // The filter is what separates them: if OUR token did not fire, this is a timeout,
+                    // so count it as a failure and retry. Genuine cancellation still propagates.
+                    consecutiveFailures++;
+                    log?.Invoke($"chunk at {from:N0}: timed out (failure {consecutiveFailures})");
+                }
+                finally
+                {
+                    response?.Dispose();
+                }
             }
-            catch (HttpRequestException ex)
-            {
-                consecutiveFailures++;
-                log?.Invoke($"chunk at {from:N0}: {ex.Message} (failure {consecutiveFailures})");
-            }
-            finally
-            {
-                response?.Dispose();
-            }
+
+            // CancellationToken.None DELIBERATELY: if ct fires after the last chunk landed, a
+            // cancellable flush would throw away a download that actually succeeded.
+            await file.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            return written;
         }
-
-        await file.FlushAsync(ct).ConfigureAwait(false);
-        return written;
+        catch
+        {
+            // No truncated file may survive a failed or cancelled fetch - see above: it cannot be
+            // told from a successful prefix by looking at it.
+            try { File.Delete(destinationPath); } catch (Exception) { }
+            throw;
+        }
     }
 
     /// <summary>Fetches to a throwaway file purely to learn where the ceiling is.</summary>
