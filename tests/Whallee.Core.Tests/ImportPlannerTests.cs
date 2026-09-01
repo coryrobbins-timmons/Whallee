@@ -31,6 +31,20 @@ public class ImportPlannerTests
     }
 
     [Theory]
+    [InlineData("con", "import-con.mp4")]
+    [InlineData("PRN", "import-prn.mp4")]
+    [InlineData("Aux", "import-aux.mp4")]
+    [InlineData("nul", "import-nul.mp4")]
+    [InlineData("com1", "import-com1.mp4")]
+    [InlineData("LPT9", "import-lpt9.mp4")]
+    [InlineData("console", "console.mp4")]
+    [InlineData("communication", "communication.mp4")]
+    public void SlugFor_GuardsWindowsReservedNames(string title, string expected)
+    {
+        Assert.Equal(expected, ImportPlanner.SlugFor(title));
+    }
+
+    [Theory]
     [InlineData(599, false)]
     [InlineData(600, false)]
     [InlineData(601, true)]

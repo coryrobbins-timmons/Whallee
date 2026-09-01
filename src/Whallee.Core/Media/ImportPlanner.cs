@@ -24,6 +24,13 @@ public static class ImportPlanner
 
     private const int MaxSlugLength = 60;
 
+    private static readonly HashSet<string> WindowsReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
+
     /// <summary>Turns a video title into a safe library filename.</summary>
     public static string SlugFor(string title, string extension = ".mp4")
     {
@@ -49,7 +56,18 @@ public static class ImportPlanner
 
         // A title of pure punctuation would otherwise produce a bare ".mp4", which is a hidden
         // file on every platform and an unclickable tile here.
-        return (slug.Length == 0 ? "import" : slug) + extension;
+        if (slug.Length == 0) slug = "import";
+
+        // Windows reserves certain device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9) and matches
+        // them against the base name BEFORE the extension, so appending ".mp4" does not help —
+        // File.Create("con.mp4") fails just as surely as "con". Prefix reserved names with
+        // "import-" to produce a valid, readable filename.
+        if (WindowsReservedNames.Contains(slug))
+        {
+            slug = "import-" + slug;
+        }
+
+        return slug + extension;
     }
 
     public static bool RequiresSection(TimeSpan duration) => duration > SectionRequiredAbove;
