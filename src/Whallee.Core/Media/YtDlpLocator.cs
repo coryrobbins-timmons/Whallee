@@ -49,20 +49,5 @@ public static class YtDlpLocator
             ? Directory.EnumerateDirectories(root).ToList()
             : Array.Empty<string>(),
         DefaultWingetPackagesRoot,
-        PathDirectories);
-
-    private static IReadOnlyList<string> PathDirectories()
-    {
-        try
-        {
-            return (Environment.GetEnvironmentVariable("PATH") ?? "")
-                .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries |
-                                           StringSplitOptions.TrimEntries)
-                .ToList();
-        }
-        catch (Exception)
-        {
-            return Array.Empty<string>();
-        }
-    }
+        EnvironmentPath.Directories);
 }
