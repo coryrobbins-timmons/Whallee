@@ -20,6 +20,10 @@ public sealed class WhalleeConfig
 
     /// <summary>Empty means "discover it" — see FfmpegLocator. Set to override discovery.</summary>
     public string FfmpegPath { get; set; } = "";
+
+    /// <summary>Discovered on first use and persisted, because the winget path is version-stamped.</summary>
+    public string? YtDlpPath { get; set; }
+
     public ScalingMode Scaling { get; set; } = ScalingMode.FillCrop;
     public bool StartWithWindows { get; set; }
     public List<DisplayAssignment> Displays { get; set; } = new();
