@@ -9,10 +9,17 @@ namespace Whallee.Core.Media;
 /// loss. The caller MUST pass a length computed by ImportPlanner.TrimTargetFor, which is
 /// deliberately shorter than what arrived - asking for more than the file holds makes ffmpeg hit
 /// EOF and exit without finalising, producing "moov atom not found".
+///
+/// This method throws on any failure: ArgumentOutOfRangeException for invalid input, or
+/// InvalidOperationException for runtime failures. Returns normally on success.
+///
+/// Note: -ss before -i seeks to the start time, but the actual output start may not align
+/// exactly with the requested time if the nearest keyframe is earlier. This is expected behavior
+/// for fast seeking with -c copy.
 /// </remarks>
 public static class ClipTrimmer
 {
-    public static async Task<bool> TrimAsync(
+    public static async Task TrimAsync(
         string ffmpegPath,
         string sourcePath,
         string destinationPath,
@@ -20,7 +27,9 @@ public static class ClipTrimmer
         TimeSpan start = default,
         CancellationToken ct = default)
     {
-        if (length <= TimeSpan.Zero) return false;
+        if (length <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(length),
+                "Trim length must be greater than zero.");
 
         var info = new ProcessStartInfo(ffmpegPath)
         {
@@ -47,7 +56,8 @@ public static class ClipTrimmer
         try
         {
             using var process = Process.Start(info);
-            if (process is null) return false;
+            if (process is null)
+                throw new InvalidOperationException("ffmpeg could not be started.");
 
             try
             {
@@ -57,7 +67,7 @@ public static class ClipTrimmer
 
                 if (process.ExitCode == 0 && File.Exists(destinationPath) &&
                     new FileInfo(destinationPath).Length > 0)
-                    return true;
+                    return;
 
                 throw new InvalidOperationException(
                     "ffmpeg could not build a clip from the downloaded prefix. " +
