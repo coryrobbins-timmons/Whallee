@@ -158,9 +158,13 @@ public static class RangePrefixFetcher
         var scratch = Path.Combine(Path.GetTempPath(), $"whallee-budget-{Guid.NewGuid():N}.bin");
         try
         {
-            // Deliberately allows far more than the measured 6 MiB: the point is to find the wall,
-            // not to assume where it is.
-            return await FetchPrefixAsync(media, scratch, 64 * 1024 * 1024, log, null, ct)
+            // Deliberately allows far more than any measured ceiling: the point is to find the
+            // wall, not to assume where it is. RAISED FROM 64 MiB TO 256 MiB on 2026-09-01, because
+            // 64 MiB was itself the wall in one measurement - Big Buck Bunny reached the cap with
+            // no 403 at all, which censored the data point and left the limit unknown. A cap that
+            // stops the measurement is indistinguishable from a server that refuses, so the cap
+            // must sit well clear of anything the server might do.
+            return await FetchPrefixAsync(media, scratch, 256 * 1024 * 1024, log, null, ct)
                 .ConfigureAwait(false);
         }
         finally
