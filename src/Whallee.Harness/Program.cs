@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Whallee.Core;
 using Whallee.Core.Configuration;
 using Whallee.Core.Desktop;
 using Whallee.Core.Displays;
+using Whallee.Core.Media;
 using Whallee.Core.Playback;
 
 // EXIT CODES — the single place they are defined. A caller scripting this harness needs to tell
@@ -34,6 +36,52 @@ switch (args[0])
             Console.WriteLine($"    id: {display.DeviceId}");
         }
         return 0;
+
+    case "probe":
+    {
+        if (args.Length < 2) { Console.WriteLine("usage: probe <url>"); return 1; }
+
+        var ytDlp = YtDlpLocator.Locate(null);
+        if (ytDlp is null) { Console.WriteLine("yt-dlp.exe not found"); return 1; }
+        Console.WriteLine($"yt-dlp: {ytDlp}");
+
+        var meta = await YtDlpProbe.ProbeAsync(ytDlp, args[1], CancellationToken.None);
+        if (meta is null) { Console.WriteLine("probe failed or returned nothing usable"); return 1; }
+
+        Console.WriteLine($"title    : {meta.Title}");
+        Console.WriteLine($"duration : {meta.Duration}");
+        Console.WriteLine($"thumbnail: {meta.ThumbnailUrl ?? "(none)"}");
+        Console.WriteLine($"licence  : {meta.License ?? "(none)"}" +
+                          (meta.IsCreativeCommons ? "  [Creative Commons]" : ""));
+        Console.WriteLine($"section required: {ImportPlanner.RequiresSection(meta.Duration)}");
+        Console.WriteLine($"slug     : {ImportPlanner.SlugFor(meta.Title)}");
+        return 0;
+    }
+
+    case "budget":
+    {
+        if (args.Length < 2) { Console.WriteLine("usage: budget <url> [<second-url>]"); return 1; }
+
+        var ytDlp = YtDlpLocator.Locate(null);
+        if (ytDlp is null) { Console.WriteLine("yt-dlp.exe not found"); return 1; }
+
+        foreach (var url in args.Skip(1))
+        {
+            Console.WriteLine($"--- {url}");
+            var media = await ResolveAsync(ytDlp, url);
+            if (media is null) { Console.WriteLine("could not resolve a direct URL"); continue; }
+
+            Console.WriteLine($"clen {media.ContentLength:N0} bytes, dur {media.Duration}");
+            Console.WriteLine($"predicted from 6 MiB: " +
+                $"{ImportPlanner.PredictedObtainable(media.ContentLength, media.Duration).TotalSeconds:F1} s");
+
+            var fetched = await RangePrefixFetcher.MeasureCeilingAsync(
+                media, Console.WriteLine, CancellationToken.None);
+            Console.WriteLine($"ACTUAL CEILING: {fetched:N0} bytes " +
+                              $"({fetched / 1024.0 / 1024.0:F1} MiB)");
+        }
+        return 0;
+    }
 
     case "workerw":
     {
@@ -214,6 +262,39 @@ static IEnumerable<string> Describe(WallpaperEngine engine)
     foreach (var active in engine.ActivePlayers)
         yield return $"{active.Display.DeviceName,-16} pid {active.Player.ProcessId,-6} " +
                      $"pipe {active.Player.PipeName,-24} clip {Path.GetFileName(active.ClipPath)}";
+}
+
+/// <summary>
+/// Runs yt-dlp -g to get direct media URLs and parses the first one. Returns null if resolution fails.
+/// </summary>
+static async Task<DirectMedia?> ResolveAsync(string ytDlpPath, string url)
+{
+    var info = new ProcessStartInfo(ytDlpPath)
+    {
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+    info.ArgumentList.Add("-g");
+    info.ArgumentList.Add("--no-playlist");
+    info.ArgumentList.Add(url);
+
+    using var process = Process.Start(info);
+    if (process is null) return null;
+
+    // Start both reads concurrently to avoid deadlock.
+    var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+    var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+    await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+
+    if (process.ExitCode != 0) return null;
+
+    var stdout = await stdoutTask.ConfigureAwait(false);
+    var lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries |
+                                   StringSplitOptions.TrimEntries);
+    return DirectMediaUrl.ParseFirst(lines);
 }
 
 /// <summary>
