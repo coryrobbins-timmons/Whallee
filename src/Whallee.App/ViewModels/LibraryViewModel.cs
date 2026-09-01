@@ -126,8 +126,21 @@ public sealed class LibraryViewModel
     /// those are precisely the calls that stall. Same reasoning that moved the directory listing
     /// off the UI thread in LoadAsync.
     ///
-    /// An existing name is disambiguated, never overwritten: PinnedPath refers to a clip BY NAME,
-    /// so overwriting would silently change what a monitor is playing.
+    /// AN EXISTING CLIP OF THE SAME NAME IS OVERWRITTEN. Owner's call, made after the alternative
+    /// was built and the trade explained: PinnedPath refers to a clip BY NAME, so replacing a
+    /// pinned clip changes what that monitor plays without touching config. Disambiguating instead
+    /// (the plan's behaviour, "name (1).mp4") avoids that but litters the library with near
+    /// duplicates. Settled - do not relitigate.
+    ///
+    /// MPV DOES NOT BLOCK THE OVERWRITE. Measured 2026-09-01: replacing forest.mp4 while it was
+    /// pinned to DISPLAY6 and playing succeeded, with three mpv processes live. Predicting a
+    /// sharing violation there was wrong, so the IOException below is DEFENSIVE AND UNEXERCISED -
+    /// some other holder (a scanner, another player, an open editor) could still lock the target.
+    /// Do not cite it as the expected path.
+    ///
+    /// A successful replace does NOT restart the engine, so a display already playing that clip
+    /// keeps showing the old content until the next restart. UNVERIFIED: the only replace-while-
+    /// playing test used byte-identical content, which cannot show a stale frame either way.
     /// </remarks>
     public async Task<string?> ImportFileAsync(string sourcePath, CancellationToken ct = default)
     {
@@ -142,9 +155,11 @@ public sealed class LibraryViewModel
             Directory.CreateDirectory(libraryFolder);
 
             // Picking a file that already lives in the library is something the file dialog openly
-            // invites, and the disambiguation loop below would turn it into a silent duplicate -
-            // two tiles, two names, one clip. Not the plan's behaviour; added because a duplicate
-            // is indistinguishable from a bug once it is on screen.
+            // invites, and it must be caught BEFORE the copy: File.Copy throws when source and
+            // destination are the same file, so without this the user gets an IOException for
+            // doing something entirely reasonable. Not the plan's behaviour; the owner has since
+            // chosen overwrite over disambiguation, which makes this guard load-bearing rather
+            // than merely tidy.
             var sourceFolder = Path.GetDirectoryName(Path.GetFullPath(sourcePath));
             if (sourceFolder is not null && string.Equals(
                     sourceFolder.TrimEnd(Path.DirectorySeparatorChar),
@@ -160,16 +175,29 @@ public sealed class LibraryViewModel
             }
 
             var target = Path.Combine(libraryFolder, Path.GetFileName(sourcePath));
-            var counter = 1;
-            while (File.Exists(target))
+            var replacing = File.Exists(target);
+
+            try
             {
-                var name = Path.GetFileNameWithoutExtension(sourcePath)
-                           + $" ({counter++})" + extension;
-                target = Path.Combine(libraryFolder, name);
+                File.Copy(sourcePath, target, overwrite: true);
+            }
+            catch (IOException ex) when (replacing)
+            {
+                // NOT the mpv-is-playing case: that was tested and mpv does not block the write.
+                // This is whatever else may hold the target open - a scanner mid-pass, another
+                // player, an open editor. Raw, it surfaces as "the process cannot access the
+                // file", which says nothing about what to do, so name the shape of the problem
+                // without claiming a cause that was already disproved.
+                throw new IOException(
+                    $"could not replace {Path.GetFileName(target)} — another program is holding "
+                    + "that file open. Close whatever is using it, then try again.", ex);
             }
 
-            File.Copy(sourcePath, target);
-            _reporter.Report($"added {Path.GetFileName(target)} to the library");
+            // The thumbnail takes care of itself: the cache key hashes path AND last-write time,
+            // and File.Copy carries the source's timestamp over, so replaced content re-renders.
+            _reporter.Report(replacing
+                ? $"replaced {Path.GetFileName(target)} in the library"
+                : $"added {Path.GetFileName(target)} to the library");
             return target;
         }, ct).ConfigureAwait(true);   // back to the UI thread; the caller refreshes the grid
     }
