@@ -44,20 +44,39 @@ public static class ClipTrimmer
         info.ArgumentList.Add("copy");
         info.ArgumentList.Add(destinationPath);
 
-        using var process = Process.Start(info);
-        if (process is null) return false;
+        try
+        {
+            using var process = Process.Start(info);
+            if (process is null) return false;
 
-        // Drain stderr while waiting: ffmpeg is chatty and a full pipe buffer deadlocks the child.
-        var stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                // Drain stderr while waiting: ffmpeg is chatty and a full pipe buffer deadlocks the child.
+                var stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+                await process.WaitForExitAsync(ct).ConfigureAwait(false);
 
-        if (process.ExitCode == 0 && File.Exists(destinationPath) &&
-            new FileInfo(destinationPath).Length > 0)
-            return true;
+                if (process.ExitCode == 0 && File.Exists(destinationPath) &&
+                    new FileInfo(destinationPath).Length > 0)
+                    return true;
 
-        throw new InvalidOperationException(
-            "ffmpeg could not build a clip from the downloaded prefix. " +
-            LastLine(stderr));
+                throw new InvalidOperationException(
+                    "ffmpeg could not build a clip from the downloaded prefix. " +
+                    LastLine(stderr));
+            }
+            finally
+            {
+                // Kill the child if cancellation orphaned it, before we delete the output file - a
+                // live ffmpeg keeps writing, and a delete races the writer.
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch (Exception) { }
+            }
+        }
+        catch
+        {
+            // A failed or cancelled trim must not leave a partially written or truncated file in the
+            // user's video library - it would be indistinguishable from a real clip until played.
+            try { File.Delete(destinationPath); } catch (Exception) { }
+            throw;
+        }
     }
 
     private static string LastLine(string text)
