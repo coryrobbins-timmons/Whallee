@@ -56,6 +56,8 @@ public static class RangePrefixFetcher
             await using var file = new FileStream(
                 destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
 
+            var buffer = new byte[81920];
+
             while (written < ceiling && consecutiveFailures < MaxConsecutiveFailures)
             {
                 ct.ThrowIfCancellationRequested();
@@ -84,14 +86,28 @@ public static class RangePrefixFetcher
 
                     await using var stream = await response.Content
                         .ReadAsStreamAsync(ct).ConfigureAwait(false);
-                    var copied = await CopyCountingAsync(stream, file, ct).ConfigureAwait(false);
 
-                    if (copied <= 0) { consecutiveFailures++; continue; }
+                    // `written` ADVANCES AS EACH BLOCK LANDS, never in one step at the end. That keeps
+                    // written == file.Position at every instant, INCLUDING when the read throws
+                    // mid-body. A retry then resumes at exactly the first byte that did not arrive.
+                    // Advancing only on success would leave partial bytes on disk while `written`
+                    // still pointed before them, so the retry would re-request that range and append
+                    // it after the partial - duplicating bytes and corrupting the file invisibly,
+                    // since a prefix is partial by design and a corrupt one looks identical.
+                    var chunkBytes = 0L;
+                    int read;
+                    while ((read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+                    {
+                        await file.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                        written += read;
+                        chunkBytes += read;
+                    }
 
-                    written += copied;
+                    if (chunkBytes <= 0) { consecutiveFailures++; continue; }
+
                     consecutiveFailures = 0;
                     progress?.Report(written);
-                    log?.Invoke($"chunk at {from:N0}: 206, {copied:N0} bytes (total {written:N0})");
+                    log?.Invoke($"chunk at {from:N0}: 206, {chunkBytes:N0} bytes (total {written:N0})");
                 }
                 catch (HttpRequestException ex)
                 {
@@ -153,16 +169,4 @@ public static class RangePrefixFetcher
         }
     }
 
-    private static async Task<long> CopyCountingAsync(Stream from, Stream to, CancellationToken ct)
-    {
-        var buffer = new byte[81920];
-        long total = 0;
-        int read;
-        while ((read = await from.ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
-        {
-            await to.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-            total += read;
-        }
-        return total;
-    }
 }
