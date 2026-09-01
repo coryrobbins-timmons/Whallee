@@ -64,11 +64,18 @@ public static class YtDlpProbe
         using var process = Process.Start(info);
         if (process is null) return null;
 
-        var stdout = await process.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+        // Start both reads concurrently. If we only read stdout, a large stderr (errors,
+        // deprecation notices, tracebacks) can fill the OS pipe buffer, blocking the child
+        // until it exits — but the child never exits because its stderr pipe is full and it's
+        // blocked writing to it. This is a classic deadlock. Reading both concurrently prevents it.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
         await process.WaitForExitAsync(ct).ConfigureAwait(false);
 
         if (process.ExitCode != 0) return null;
 
+        var stdout = await stdoutTask.ConfigureAwait(false);
         return ParseLines(stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries |
                                               StringSplitOptions.TrimEntries));
     }
