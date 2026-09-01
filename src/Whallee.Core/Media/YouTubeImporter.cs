@@ -30,8 +30,11 @@ public static class YouTubeImporter
         CancellationToken ct)
     {
         // AGE-GATED, SO IT CANNOT TOUCH A LIVE IMPORT. Run before the probe: a crash or held
-        // handle from an earlier run is the only thing this ever removes.
-        SweepStaleResidue(libraryFolder);
+        // handle from an earlier run is the only thing this ever removes. OFFLOADED to a pool
+        // thread: this enumerates a OneDrive-backed folder and can recursively delete a
+        // multi-GB directory, and ImportAsync is public - nothing guarantees every caller has
+        // already moved off a thread that owns desktop window handles.
+        await Task.Run(() => SweepStaleResidue(libraryFolder), ct).ConfigureAwait(false);
 
         var meta = await YtDlpProbe.ProbeAsync(ytDlpPath, request.Url, ct).ConfigureAwait(false);
         if (meta is null)
@@ -104,6 +107,13 @@ public static class YouTubeImporter
         foreach (var argument in new[]
                  {
                      "--no-warnings", "--no-playlist",
+                     // WITHOUT THIS, yt-dlp stamps the output file's mtime from the response
+                     // Last-Modified header, which googlevideo reports as the video's transcode
+                     // date - weeks or years in the past, not when this import ran. That both
+                     // mis-dates the clip in the library and defeats SweepStaleResidue's
+                     // creation-time gate below (File.Copy preserves source timestamps, so a
+                     // stale mtime would otherwise propagate into the library copy too).
+                     "--no-mtime",
                      "--download-sections", section,
                      "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
                      "-o", target,
@@ -337,7 +347,14 @@ public static class YouTubeImporter
             {
                 try
                 {
-                    if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
+                    // CREATION TIME, NOT LAST-WRITE TIME. File.Copy preserves the SOURCE's
+                    // last-write time rather than stamping now, and yt-dlp's strategy-A output
+                    // (before --no-mtime was added) could itself carry a stale mtime from
+                    // googlevideo's Last-Modified header - either way, a fresh GUID-named temp
+                    // could already read as ancient by LastWriteTimeUtc. CreationTimeUtc is set
+                    // to now for a new file regardless, and the GUID name guarantees this file is
+                    // new. Do not "fix" this back to LastWriteTimeUtc.
+                    if (File.GetCreationTimeUtc(file) < cutoff) File.Delete(file);
                 }
                 catch (Exception) { }
             }
@@ -350,7 +367,14 @@ public static class YouTubeImporter
             {
                 try
                 {
-                    if (Directory.GetLastWriteTimeUtc(directory) < cutoff)
+                    // CREATION TIME, NOT LAST-WRITE TIME. A directory's LastWriteTimeUtc advances
+                    // only when entries are added or removed, not while data is written into a
+                    // file already inside it - so a long-running strategy-A download whose
+                    // fragments were created at t=0 and are still filling hours later would read
+                    // as stale by write time while genuinely live. CreationTimeUtc is set once,
+                    // when this per-import directory was made, and never changes underneath it.
+                    // Do not "fix" this back to LastWriteTimeUtc.
+                    if (Directory.GetCreationTimeUtc(directory) < cutoff)
                         Directory.Delete(directory, recursive: true);
                 }
                 catch (Exception) { }
