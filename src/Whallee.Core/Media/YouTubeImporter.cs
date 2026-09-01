@@ -34,17 +34,30 @@ public static class YouTubeImporter
             return new ImportOutcome(false, null, "Could not read that video's details.", "none",
                                      TimeSpan.Zero);
 
-        var staging = DefaultStagingFolder;
+        // meta.Duration was in hand and never used. --download-sections with -c copy snaps to
+        // keyframes and truncates silently past the end of the video, so strategy A would report
+        // the length REQUESTED rather than the length obtained.
+        var available = meta.Duration - request.Start;
+        if (available <= TimeSpan.Zero)
+            return new ImportOutcome(false, null,
+                "That start time is past the end of the video.", "none", TimeSpan.Zero);
+
+        var clamped = request with
+        {
+            Length = request.Length < available ? request.Length : available
+        };
+
+        var staging = Path.Combine(DefaultStagingFolder, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
-        var stem = Path.Combine(staging, Guid.NewGuid().ToString("N"));
+        var stem = Path.Combine(staging, "import");
 
         try
         {
             var outcome = await TryStrategyAAsync(
-                request, ytDlpPath, stem, progress, ct).ConfigureAwait(false);
+                clamped, ytDlpPath, stem, progress, ct).ConfigureAwait(false);
 
             outcome ??= await TryStrategyCAsync(
-                request, ytDlpPath, ffmpegPath, stem, progress, ct).ConfigureAwait(false);
+                clamped, ytDlpPath, ffmpegPath, stem, progress, ct).ConfigureAwait(false);
 
             if (outcome is null || !outcome.Success || outcome.LibraryPath is null)
                 return outcome ?? new ImportOutcome(false, null,
@@ -57,7 +70,7 @@ public static class YouTubeImporter
         }
         finally
         {
-            CleanStaging(stem);
+            CleanStaging(staging);
         }
     }
 
@@ -205,32 +218,57 @@ public static class YouTubeImporter
     {
         Directory.CreateDirectory(libraryFolder);
 
-        var target = Path.Combine(libraryFolder, ImportPlanner.SlugFor(title));
+        var slug = ImportPlanner.SlugFor(title);
+        var stem = Path.GetFileNameWithoutExtension(slug);
+        var extension = Path.GetExtension(slug);
 
-        // Unlike Add from file, an import DISAMBIGUATES rather than overwrites. Two imports of the
-        // same video are usually two different sections, and silently replacing the first would
-        // destroy a clip the user chose to keep. The overwrite ruling was about a file the user
-        // picked deliberately by name; this filename is generated, so the user never chose it.
-        var counter = 1;
-        var stem = Path.GetFileNameWithoutExtension(target);
-        var extension = Path.GetExtension(target);
-        while (File.Exists(target))
-            target = Path.Combine(libraryFolder, $"{stem} ({counter++}){extension}");
+        // COPY UNDER A NAME THE LIBRARY SCAN IGNORES, THEN RENAME. ClipResolver only accepts
+        // .mp4/.mkv/.webm/.mov, so this suffix is invisible to it. Copying straight to the final
+        // name lets the engine pick up a half-written file as a real clip mid-copy - and File.Move
+        // is only atomic within a volume, which a user-configured library folder cannot guarantee.
+        var temp = Path.Combine(libraryFolder, stem + extension + ".whallee-tmp");
+        try
+        {
+            File.Copy(finished, temp, overwrite: true);
 
-        File.Move(finished, target);
-        return target;
+            for (var counter = 0; counter < 100; counter++)
+            {
+                var target = counter == 0
+                    ? Path.Combine(libraryFolder, slug)
+                    : Path.Combine(libraryFolder, $"{stem} ({counter}){extension}");
+
+                try
+                {
+                    // No overwrite, deliberately. Two concurrent imports of one title race for the
+                    // name; losing that race must cost a retry, never the clip.
+                    File.Move(temp, target);
+                    return target;
+                }
+                catch (IOException) when (File.Exists(target))
+                {
+                    // Name claimed between the check and the move - take the next one.
+                }
+            }
+
+            throw new IOException($"Could not find a free name for {slug} in the library.");
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch (Exception) { }
+            throw;
+        }
     }
 
-    private static void CleanStaging(string stem)
+    /// <summary>
+    /// Removes the whole per-import directory. NOT a list of known suffixes: yt-dlp writes
+    /// separate stream files (.f137.mp4, .f140.m4a) plus .part and .ytdl scratch, and merges them
+    /// only on success - so the failing path, which is the NORMAL path here, is exactly the one
+    /// that leaves the big files behind.
+    /// </summary>
+    private static void CleanStaging(string directory)
     {
-        foreach (var suffix in new[] { "-a.mp4", "-prefix.mp4", "-c.mp4" })
-        {
-            try
-            {
-                var path = stem + suffix;
-                if (File.Exists(path)) File.Delete(path);
-            }
-            catch (IOException) { }   // a leftover in staging is harmless; a crash here is not
-        }
+        try { if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 }
