@@ -11,15 +11,20 @@ using Whallee.Core.Playback;
 // "partly up" from "nothing up" without parsing text, so 3 and 6 are deliberately distinct.
 //
 //   0  success. Includes the legitimate "no displays detected" case: nothing to start, no errors.
-//   1  usage error, or an unknown verb.
+//      For `probe`: probe succeeded and printed metadata.
+//      For `budget`: at least one URL produced a measurement.
+//   1  usage error, or an unknown verb. Also used by `probe` and `budget` for fatal errors before
+//      attempting the operation (yt-dlp not found, missing URL argument, probe failed to fetch
+//      metadata). These are invoked-incorrectly scenarios, semantically distinct from 6.
 //   2  the desktop wallpaper layer (WorkerW) could not be found — from the pre-flight check in
 //      `workerw` and `one`. In `all` the engine reports it as an error instead, so that surfaces
 //      as 6 with the reason on the console.
 //   3  running, but degraded: at least one display IS playing and at least one reported an error.
 //   4  the `one` verb threw.
 //   5  the `all` verb threw.
-//   6  the `all` verb started nothing: zero players despite errors being reported. Nothing is on
-//      screen. Distinct from 0, where zero players simply means there was nothing to start.
+//   6  ran but achieved nothing. For `all`: zero players despite errors being reported. Nothing is
+//      on screen. Distinct from 0, where zero players simply means there was nothing to start.
+//      For `budget`: all provided URLs failed to produce measurements (could not resolve or threw).
 
 if (args.Length == 0)
 {
@@ -65,22 +70,31 @@ switch (args[0])
         var ytDlp = YtDlpLocator.Locate(null);
         if (ytDlp is null) { Console.WriteLine("yt-dlp.exe not found"); return 1; }
 
+        var anyMeasured = false;
         foreach (var url in args.Skip(1))
         {
-            Console.WriteLine($"--- {url}");
-            var media = await ResolveAsync(ytDlp, url);
-            if (media is null) { Console.WriteLine("could not resolve a direct URL"); continue; }
+            try
+            {
+                Console.WriteLine($"--- {url}");
+                var media = await ResolveAsync(ytDlp, url);
+                if (media is null) { Console.WriteLine("could not resolve a direct URL"); continue; }
 
-            Console.WriteLine($"clen {media.ContentLength:N0} bytes, dur {media.Duration}");
-            Console.WriteLine($"predicted from 6 MiB: " +
-                $"{ImportPlanner.PredictedObtainable(media.ContentLength, media.Duration).TotalSeconds:F1} s");
+                Console.WriteLine($"clen {media.ContentLength:N0} bytes, dur {media.Duration}");
+                Console.WriteLine($"predicted from 6 MiB: " +
+                    $"{ImportPlanner.PredictedObtainable(media.ContentLength, media.Duration).TotalSeconds:F1} s");
 
-            var fetched = await RangePrefixFetcher.MeasureCeilingAsync(
-                media, Console.WriteLine, CancellationToken.None);
-            Console.WriteLine($"ACTUAL CEILING: {fetched:N0} bytes " +
-                              $"({fetched / 1024.0 / 1024.0:F1} MiB)");
+                var fetched = await RangePrefixFetcher.MeasureCeilingAsync(
+                    media, Console.WriteLine, CancellationToken.None);
+                Console.WriteLine($"ACTUAL CEILING: {fetched:N0} bytes " +
+                                  $"({fetched / 1024.0 / 1024.0:F1} MiB)");
+                anyMeasured = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"error: {ex.Message}");
+            }
         }
-        return 0;
+        return anyMeasured ? 0 : 6;
     }
 
     case "workerw":
