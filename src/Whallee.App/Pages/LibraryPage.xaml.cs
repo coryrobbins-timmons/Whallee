@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
+using Whallee.App.Dialogs;
 using Whallee.App.Services;
 using Whallee.App.ViewModels;
+using Whallee.Core.Media;
 
 namespace Whallee.App.Pages;
 
@@ -100,6 +102,61 @@ public partial class LibraryPage : UserControl
         finally
         {
             AddFromFile.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// async void, because a Click handler that awaits has no other shape - which is exactly why
+    /// the body is wrapped. ImportAsync launches two child processes and does network and file I/O,
+    /// so an exception escaping here is not hypothetical, and it can fail two ways: by returning an
+    /// ImportOutcome with Success == false and a user-facing Message, or by throwing (ClipTrimmer
+    /// throws InvalidOperationException, the library move can throw IOException). Same defect class
+    /// as AddFromFile_Click and Tile_Click.
+    /// </summary>
+    private async void AddFromUrl_Click(object sender, RoutedEventArgs e)
+    {
+        var ytDlp = YtDlpLocator.Locate(null);
+        if (ytDlp is null)
+        {
+            MessageBox.Show("yt-dlp was not found on this machine.", "Whallee",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var dialog = new UrlImportDialog(ytDlp) { Owner = Window.GetWindow(this) };
+        if (dialog.ShowDialog() != true || dialog.Result is null) return;
+
+        AddFromUrl.IsEnabled = false;
+        try
+        {
+            var progress = new Progress<string>(m => _reporter.Report(m));
+            var outcome = await _model.ImportFromUrlAsync(dialog.Result, progress);
+
+            if (!outcome.Success)
+            {
+                // Success == false always carries a user-facing Message, never null - show it
+                // as-is rather than composing a new one.
+                MessageBox.Show(outcome.Message, "Whallee",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            await _model.LoadAsync();
+
+            // A short clip is the expected result on this network, not a failure - the message
+            // already explains that plainly, so surface it rather than letting the user discover
+            // the shortfall by watching a shorter-than-requested loop.
+            if (outcome.ActualLength < dialog.Result.Length)
+                MessageBox.Show(outcome.Message, "Whallee",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not import that link: {ex.Message}");
+        }
+        finally
+        {
+            AddFromUrl.IsEnabled = true;
         }
     }
 

@@ -15,6 +15,8 @@
             <ComboBox x:Name="TargetSelector" Width="220" SelectedIndex="0" />
             <Button x:Name="AddFromFile" Content="Add from file…" Margin="16,0,0,0" Padding="8,2"
                     Click="AddFromFile_Click" />
+            <Button x:Name="AddFromUrl" Content="Add from URL…" Margin="8,0,0,0" Padding="8,2"
+                    Click="AddFromUrl_Click" />
         </StackPanel>
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="TileHost">
