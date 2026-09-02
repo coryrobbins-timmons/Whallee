@@ -27,6 +27,13 @@ public partial class UrlImportDialog : Window
     {
         InitializeComponent();
         _ytDlpPath = ytDlpPath;
+
+        // SUBSCRIBED HERE, NOT IN XAML, AND THAT IS LOAD-BEARING. A XAML-wired TextChanged fires
+        // while InitializeComponent is still walking the tree - the Text="5:00" attribute raises it
+        // synchronously - and PredictionText is declared later in the file, so its field is still
+        // null at that moment. This app has already been killed once by a handler firing mid-
+        // InitializeComponent before the element it touched existed.
+        LengthBox.TextChanged += LengthBox_TextChanged;
     }
 
     /// <summary>async void: a Click handler that awaits has no other shape, so the body is wrapped.</summary>
@@ -93,8 +100,24 @@ public partial class UrlImportDialog : Window
     /// Recomputes the predicted-obtainable line from the current length field and metadata. Pure
     /// arithmetic - see the type-level remarks for why nothing here touches the network.
     /// </summary>
+    /// <remarks>
+    /// A Dispatcher callback, same as any other event handler on this window - an exception
+    /// escaping it terminates the process regardless of what raised it. Subscribing in code
+    /// (constructor, after InitializeComponent) already removes today's ordering hazard; this
+    /// try/catch is the safety net for whatever the next edit introduces here, matching
+    /// Probe_Click and Import_Click.
+    /// </remarks>
     private void LengthBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        => UpdatePrediction();
+    {
+        try
+        {
+            UpdatePrediction();
+        }
+        catch (Exception)
+        {
+            PredictionText.Text = string.Empty;   // a missing prediction must never crash the dialog
+        }
+    }
 
     private void UpdatePrediction()
     {
