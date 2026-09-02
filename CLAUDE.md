@@ -99,6 +99,20 @@ Both must be clean. Safe verbs that print and exit — use these freely:
 - mpv: `C:\Users\cory.robbins\AppData\Local\Programs\Lively Wallpaper\Plugins\Mpv\mpv.exe`
 - Config: `%LOCALAPPDATA%\Whallee\config.json`, **PascalCase keys**. Content: `<repo>\Library`
   (git-ignored — video files must not enter git).
+- **YouTube downloads are capped at roughly 60 SECONDS OF VIDEO CONTENT per video — a duration, not
+  a byte count.** Measured four times across bitrates spanning 9×; the byte counts spanned more
+  than 10× (6 MiB → 64 MiB) while the durations stayed flat at 51–60 s. Bracketing every
+  measurement between the bytes served and what the next chunk would have completed, the intervals
+  intersect at **59.8–61.3 s**.
+  - **The allowance is PER VIDEO, not per IP.** A second video requested immediately after a first
+    had been refused received a full fresh allowance on the same connection.
+  - **Lower bitrate buys no extra length** — the same ~60 s in fewer bytes. It downloads faster and
+    uses less bandwidth, nothing more. Do not choose a format expecting a longer clip.
+  - **Do not model this as a byte ceiling.** The design spec's original 6 MiB figure was this same
+    60 s allowance measured on a ~1 Mbps stream, and building on it produced a prediction that
+    understated reality by 4×. Retuning a byte constant to a larger value repeats the mistake.
+  - An open-ended request is answered **403**; an explicit `Range: bytes=N-M` is answered **206**.
+    That difference is the entire mechanism, not an optimisation.
 - Four clips in the library. **Four clips across three displays means two displays showing the same
   clip is expected, not a bug.**
 - `Documents` is OneDrive-redirected, so `SpecialFolder.MyDocuments` is *not* local `Documents`, and
