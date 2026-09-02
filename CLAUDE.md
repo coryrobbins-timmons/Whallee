@@ -126,14 +126,27 @@ Both must be clean. Safe verbs that print and exit — use these freely:
 - Config: `%LOCALAPPDATA%\Whallee\config.json`, **PascalCase keys**. Content: `<repo>\Library`
   (git-ignored — video files must not enter git).
 - **YouTube downloads are capped at roughly 60 SECONDS OF VIDEO CONTENT per video — a duration, not
-  a byte count.** Measured four times across bitrates spanning 9×; the byte counts spanned more
-  than 10× (6 MiB → 64 MiB) while the durations stayed flat at 51–60 s. Bracketing every
-  measurement between the bytes served and what the next chunk would have completed, the intervals
+  a byte count.** Measured five times across bitrates spanning 21×; the byte counts spanned **24×**
+  (6 MiB → 144 MiB) while the durations stayed flat at 51–60 s. Bracketing the first four
+  measurements between the bytes served and what the next chunk would have completed, the intervals
   intersect at **59.8–61.3 s**.
+
+  | Bitrate | Bytes served | Seconds of content |
+  |---|---|---|
+  | ~1.0 Mbps | 6 MiB | 51.0 |
+  | ~3.8 Mbps | 26 MiB | 56.9 |
+  | ~9.0 Mbps | 64 MiB | 59.8 |
+  | ~21 Mbps (4K 60fps) | 144 MiB | 57 |
+
+  The last row is from a real import on 2026-09-02, not a `budget` run, so it is a whole-pipeline
+  confirmation rather than a bracketed measurement.
   - **The allowance is PER VIDEO, not per IP.** A second video requested immediately after a first
     had been refused received a full fresh allowance on the same connection.
-  - **Lower bitrate buys no extra length** — the same ~60 s in fewer bytes. It downloads faster and
-    uses less bandwidth, nothing more. Do not choose a format expecting a longer clip.
+  - **Lower bitrate buys no extra length** — the same ~60 s in fewer bytes. Do not choose a format
+    expecting a longer clip. It does buy **bandwidth**, though, and at 4K that is not trivial: the
+    144 MiB run above produced a 57-second loop that 1080p would have delivered in roughly 10 MiB.
+    On a corporate connection, a dozen 4K imports is a couple of gigabytes for no visible gain at
+    wallpaper size. Format selection is worth revisiting on those grounds, not on length.
   - **Do not model this as a byte ceiling.** The design spec's original 6 MiB figure was this same
     60 s allowance measured on a ~1 Mbps stream, and building on it produced a prediction that
     understated reality by 4×. Retuning a byte constant to a larger value repeats the mistake.
