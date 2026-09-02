@@ -215,6 +215,13 @@ public sealed class LibraryViewModel
     /// Imports a YouTube URL into the library. All process and network work is off the UI thread.
     /// </summary>
     /// <remarks>
+    /// BOTH Locate CALLS ARE INSIDE THE Task.Run TOO, not just ImportAsync. This thread owns host
+    /// windows re-parented into Explorer's desktop, and on a first-ever import both configured
+    /// paths are null - so Locate does a full PATH walk plus a winget-tree enumeration
+    /// (Directory.EnumerateDirectories), with FfmpegLocator's search heavier still. A stall there
+    /// freezes the user's whole desktop exactly as a stall inside ImportAsync would; there is
+    /// nothing that makes the locate step safer to leave on the caller's thread.
+    ///
     /// PERSISTS A DISCOVERED yt-dlp PATH THE SAME WAY THE CONSTRUCTOR PERSISTS ffmpeg's: SaveConfig,
     /// not ApplyConfigChange. Recording where an executable lives is no reason to restart three mpv
     /// processes.
@@ -222,25 +229,28 @@ public sealed class LibraryViewModel
     public async Task<ImportOutcome> ImportFromUrlAsync(
         ImportRequest request, IProgress<string>? progress, CancellationToken ct = default)
     {
-        var ytDlp = YtDlpLocator.Locate(_engine.Config.YtDlpPath);
-        if (ytDlp is null)
-            return new ImportOutcome(false, null, "yt-dlp was not found on this machine.",
-                                     "none", TimeSpan.Zero);
-
-        if (ytDlp != _engine.Config.YtDlpPath)
+        var outcome = await Task.Run(async () =>
         {
-            _engine.Config.YtDlpPath = ytDlp;
-            _engine.SaveConfig();
-        }
+            var ytDlp = YtDlpLocator.Locate(_engine.Config.YtDlpPath);
+            if (ytDlp is null)
+                return new ImportOutcome(false, null, "yt-dlp was not found on this machine.",
+                                         "none", TimeSpan.Zero);
 
-        var ffmpeg = FfmpegLocator.Locate(_engine.Config.FfmpegPath);
-        if (ffmpeg is null)
-            return new ImportOutcome(false, null, "ffmpeg was not found, so a clip cannot be cut.",
-                                     "none", TimeSpan.Zero);
+            if (ytDlp != _engine.Config.YtDlpPath)
+            {
+                _engine.Config.YtDlpPath = ytDlp;
+                _engine.SaveConfig();
+            }
 
-        var outcome = await Task.Run(() => YouTubeImporter.ImportAsync(
-            request, ytDlp, ffmpeg, _engine.Config.LibraryFolder, progress, ct), ct)
-            .ConfigureAwait(true);
+            var ffmpeg = FfmpegLocator.Locate(_engine.Config.FfmpegPath);
+            if (ffmpeg is null)
+                return new ImportOutcome(false, null, "ffmpeg was not found, so a clip cannot be cut.",
+                                         "none", TimeSpan.Zero);
+
+            return await YouTubeImporter.ImportAsync(
+                request, ytDlp, ffmpeg, _engine.Config.LibraryFolder, progress, ct)
+                .ConfigureAwait(false);
+        }, ct).ConfigureAwait(true);
 
         _reporter.Report(outcome.Success
             ? $"imported {Path.GetFileName(outcome.LibraryPath)} ({outcome.Strategy}, " +

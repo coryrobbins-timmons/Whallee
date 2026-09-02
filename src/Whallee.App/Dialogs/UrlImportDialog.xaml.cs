@@ -34,6 +34,11 @@ public partial class UrlImportDialog : Window
         // null at that moment. This app has already been killed once by a handler firing mid-
         // InitializeComponent before the element it touched existed.
         LengthBox.TextChanged += LengthBox_TextChanged;
+
+        // Same reasoning as LengthBox above: subscribed here, not in XAML, so a TextChanged wired
+        // during InitializeComponent's tree-walk can never fire before ImportButton and
+        // DetailsPanel - which the handler below touches - exist.
+        UrlBox.TextChanged += UrlBox_TextChanged;
     }
 
     /// <summary>async void: a Click handler that awaits has no other shape, so the body is wrapped.</summary>
@@ -116,6 +121,38 @@ public partial class UrlImportDialog : Window
         catch (Exception)
         {
             PredictionText.Text = string.Empty;   // a missing prediction must never crash the dialog
+        }
+    }
+
+    /// <summary>
+    /// Invalidates the last lookup whenever the URL text changes, so Import can never build an
+    /// ImportRequest from a URL other than the one ValidateSection's duration bound came from.
+    /// ImportButton is otherwise only ever enabled by a successful lookup and never re-disabled -
+    /// without this, editing the URL after looking one video up and pressing Import without
+    /// looking up again would validate against video A's duration and import video B.
+    /// </summary>
+    /// <remarks>
+    /// A Dispatcher callback like any other handler on this window - wrapped in try/catch for the
+    /// same reason as LengthBox_TextChanged, Probe_Click and Import_Click: an exception escaping
+    /// it terminates the process regardless of what raised it.
+    /// </remarks>
+    private void UrlBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        try
+        {
+            if (_metadata is null) return;   // nothing looked up yet - nothing to invalidate
+
+            _metadata = null;
+            ImportButton.IsEnabled = false;
+            DetailsPanel.Visibility = Visibility.Collapsed;
+            ErrorText.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception)
+        {
+            // Fail toward requiring another lookup, never toward silently allowing Import to
+            // proceed against stale or indeterminate metadata.
+            _metadata = null;
+            ImportButton.IsEnabled = false;
         }
     }
 

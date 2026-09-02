@@ -109,10 +109,16 @@ public static class YouTubeImporter
                      "--no-warnings", "--no-playlist",
                      // WITHOUT THIS, yt-dlp stamps the output file's mtime from the response
                      // Last-Modified header, which googlevideo reports as the video's transcode
-                     // date - weeks or years in the past, not when this import ran. That both
-                     // mis-dates the clip in the library and defeats SweepStaleResidue's
-                     // creation-time gate below (File.Copy preserves source timestamps, so a
-                     // stale mtime would otherwise propagate into the library copy too).
+                     // date - weeks or years in the past, not when this import ran. --no-mtime
+                     // exists so an imported clip is dated when it was actually imported, not
+                     // when the source video happened to be uploaded.
+                     //
+                     // This is UNRELATED to SweepStaleResidue's creation-time gate below, and does
+                     // not "defend" it - a stale mtime here could never have reached that gate
+                     // either way, because File.Copy propagates the source's LAST-WRITE time, not
+                     // its creation time. The gate stands on File.Copy's own behaviour regardless
+                     // of what mtime yt-dlp writes. Two independent reasons; a future edit must
+                     // not drop one on the assumption the other already covers it.
                      "--no-mtime",
                      "--download-sections", section,
                      "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
@@ -124,9 +130,10 @@ public static class YouTubeImporter
         using var process = Process.Start(info);
         if (process is null) return null;
 
+        string stderr;
         try
         {
-            _ = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+            stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
         }
         finally
@@ -140,8 +147,15 @@ public static class YouTubeImporter
         {
             // EXPECTED ON THIS NETWORK. Strategy A delegates fetching to ffmpeg, which makes
             // open-ended requests and gets 403 here. Falling through to C is the normal path,
-            // not an error worth showing the user.
-            progress?.Report("Direct section download unavailable; falling back.");
+            // not an error worth showing the user - but if it failed for some OTHER reason
+            // (age-gate, sign-in required, geo-block, a stale yt-dlp build), that must be visible
+            // somewhere, or a strategy-C failure right after it gets blamed entirely on "this
+            // network" when the real cause follows the user to a different one. Same
+            // last-stderr-line precedent as ClipTrimmer.TrimAsync.
+            var reason = LastLine(stderr);
+            progress?.Report(reason.Length == 0
+                ? "Direct section download unavailable; falling back."
+                : $"Direct section download unavailable; falling back. ({reason})");
             return null;
         }
 
@@ -206,12 +220,32 @@ public static class YouTubeImporter
         await ClipTrimmer.TrimAsync(ffmpegPath, prefix, trimmed, length, TimeSpan.Zero, ct)
             .ConfigureAwait(false);
 
-        var message = length < request.Length
-            ? $"YouTube sent {fetched / 1024 / 1024} MiB before refusing more, which is " +
-              $"{length.TotalSeconds:F0} seconds rather than the {request.Length.TotalSeconds:F0} " +
-              "requested. This is a restriction on this network, not a problem with the link, " +
-              "and the clip is still usable."
-            : "Downloaded the requested section.";
+        // THREE DISTINCT OUTCOMES, not two - length alone cannot tell "got the section" from "got
+        // the wrong section at full length". Ask for start 1:30, length 0:30 on a 5-minute video:
+        // C always fetches from 0:00, so a length match here means the OPENING 30 seconds, not the
+        // requested ones. Silently calling that "the requested section" would be confidently wrong.
+        string message;
+        if (length < request.Length)
+        {
+            // Existing shortfall message - left exactly as it was. It already covers the length
+            // mismatch; whether Start was also non-zero doesn't change what happened here (a
+            // prefix that came up short), so it isn't mentioned.
+            message = $"YouTube sent {fetched / 1024 / 1024} MiB before refusing more, which is " +
+                      $"{length.TotalSeconds:F0} seconds rather than the {request.Length.TotalSeconds:F0} " +
+                      "requested. This is a restriction on this network, not a problem with the link, " +
+                      "and the clip is still usable.";
+        }
+        else if (request.Start > TimeSpan.Zero)
+        {
+            message = "This clip starts from the beginning of the video, not the requested " +
+                      $"{request.Start.TotalSeconds:F0}-second start time. Strategy C can only " +
+                      "fetch a prefix of the file, so it can never seek into the middle - only " +
+                      "how much of the opening it captured, never where it starts.";
+        }
+        else
+        {
+            message = "Downloaded the requested section.";
+        }
 
         return new ImportOutcome(true, trimmed, message, "C", length);
     }
@@ -220,8 +254,11 @@ public static class YouTubeImporter
     /// Resolves a YouTube URL to its direct media URL (clen/dur included) via <c>yt-dlp -g</c>.
     /// </summary>
     /// <remarks>
-    /// Public: also used to predict what strategy C could obtain before committing to an import,
-    /// not only internally by <see cref="TryStrategyCAsync"/>.
+    /// Public because Whallee.Harness's <c>budget</c> verb calls it directly to measure what a URL
+    /// would yield before an import is ever attempted, not only internally by
+    /// <see cref="TryStrategyCAsync"/>. (An earlier caller that used this to preview strategy C's
+    /// outcome from the UI was removed when the duration-ceiling model landed; this is the one that
+    /// remains.)
     /// </remarks>
     public static async Task<DirectMedia?> ResolveForPredictionAsync(
         string ytDlpPath, string url, CancellationToken ct)
@@ -329,6 +366,14 @@ public static class YouTubeImporter
             try { File.Delete(temp); } catch (Exception) { }
             throw;
         }
+    }
+
+    /// <summary>Same precedent as ClipTrimmer.LastLine: the last non-empty line of a process's stderr.</summary>
+    private static string LastLine(string text)
+    {
+        var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries |
+                                     StringSplitOptions.TrimEntries);
+        return lines.Length == 0 ? "" : lines[^1];
     }
 
     /// <summary>

@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using Whallee.Core;
 using Whallee.Core.Configuration;
 using Whallee.Core.Desktop;
@@ -76,7 +75,8 @@ switch (args[0])
             try
             {
                 Console.WriteLine($"--- {url}");
-                var media = await ResolveAsync(ytDlp, url);
+                var media = await YouTubeImporter.ResolveForPredictionAsync(
+                    ytDlp, url, CancellationToken.None);
                 if (media is null) { Console.WriteLine("could not resolve a direct URL"); continue; }
 
                 Console.WriteLine($"clen {media.ContentLength:N0} bytes, dur {media.Duration}");
@@ -276,39 +276,6 @@ static IEnumerable<string> Describe(WallpaperEngine engine)
     foreach (var active in engine.ActivePlayers)
         yield return $"{active.Display.DeviceName,-16} pid {active.Player.ProcessId,-6} " +
                      $"pipe {active.Player.PipeName,-24} clip {Path.GetFileName(active.ClipPath)}";
-}
-
-/// <summary>
-/// Runs yt-dlp -g to get direct media URLs and parses the first one. Returns null if resolution fails.
-/// </summary>
-static async Task<DirectMedia?> ResolveAsync(string ytDlpPath, string url)
-{
-    var info = new ProcessStartInfo(ytDlpPath)
-    {
-        RedirectStandardOutput = true,
-        RedirectStandardError = true,
-        UseShellExecute = false,
-        CreateNoWindow = true
-    };
-    info.ArgumentList.Add("-g");
-    info.ArgumentList.Add("--no-playlist");
-    info.ArgumentList.Add(url);
-
-    using var process = Process.Start(info);
-    if (process is null) return null;
-
-    // Start both reads concurrently to avoid deadlock.
-    var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
-    var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
-    await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-    await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-
-    if (process.ExitCode != 0) return null;
-
-    var stdout = await stdoutTask.ConfigureAwait(false);
-    var lines = stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries |
-                                   StringSplitOptions.TrimEntries);
-    return DirectMediaUrl.ParseFirst(lines);
 }
 
 /// <summary>
