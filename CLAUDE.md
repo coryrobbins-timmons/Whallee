@@ -10,6 +10,33 @@ Guidance for Claude Code working in this repository.
   read it unless the owner asks you to** (e.g. "pick up from the handoff"). It is a snapshot as of
   the date at its top, so it goes stale; where it and the ledger disagree, **the ledger wins**.
 
+> **The SDD ledgers are git-ignored.** Anything in them that is durably true — an environment fact,
+> a measured constraint, a settled ruling — belongs in this file instead, or it dies with the
+> workspace. Follow-up work belongs in the section at the bottom of this file for the same reason.
+
+## Known follow-ups
+
+Recorded 2026-09-02, none started. Plan 3 (YouTube import) is complete, reviewed, and confirmed
+working end to end; these are improvements, not defects.
+
+1. **Redesign the URL import dialog's explanatory text.** It currently carries a full paragraph
+   explaining the download limit, its bitrate independence, and the start-time caveat — reference
+   documentation written into a UI. The only line that changes the user's decision is *this network
+   will give you about a minute*. **Consider dropping the start-time field entirely** rather than
+   explaining why it does not work: strategy A always fails here, so a start time is ignored in
+   practice, and a field that never does anything next to a sentence saying it never does anything
+   is worse than no field.
+2. **Import latency is process launches, not bandwidth.** Measured from a real import: the 22 MiB
+   download took ~0.5 s; `yt-dlp` resolving the URL took ~6 s, on top of a separate probe at *Look
+   up*. The feature launches `yt-dlp` **twice** for overlapping information — `--print` for
+   metadata, then `-g` for the direct URL. Worth investigating whether one invocation can serve
+   both. This is a real change to the probe/resolve split, not a tweak.
+3. **A fully-satisfied strategy C import with a non-zero start time is silent about starting from
+   0:00.** The clip is correct and complete; it just begins at the start of the video rather than
+   the requested offset, and nothing says so. One line, in the *Add from URL* click handler:
+   `|| (outcome.Strategy == "C" && dialog.Result.Start > TimeSpan.Zero)` alongside the existing
+   shortfall condition. **Moot if follow-up 1 removes the start-time field**, so decide that first.
+
 ## What this is
 
 **Whallee** — a live-wallpaper app for Windows 11. It plays looping local video as the desktop
