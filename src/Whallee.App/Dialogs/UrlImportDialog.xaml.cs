@@ -8,13 +8,14 @@ namespace Whallee.App.Dialogs;
 /// "Add from URL": paste a link, look up its details, choose a section, confirm.
 /// </summary>
 /// <remarks>
-/// The predicted-length line is PURE ARITHMETIC on the probe's own metadata
-/// (<see cref="ImportPlanner.PredictedObtainable"/>), not a second network round trip. An earlier
-/// design resolved a direct media URL in the background to read its byte length and did bitrate
-/// arithmetic on that - obsoleted 2026-09-01 when a real measurement showed the network's limit is
-/// a ~60s DURATION ceiling, independent of bitrate and file size (see
-/// <see cref="ImportPlanner.ContentCeiling"/>). There is nothing left here to resolve, so there is
-/// no background task, no second yt-dlp launch, and no failure path for either.
+/// THIS DIALOG PREDICTS NOTHING, BY DESIGN. It carried a line estimating how much of the request
+/// this network would actually supply; it was removed 2026-09-02 because knowing the ~60s ceiling
+/// beforehand cannot change what the user does - asking for 5:00 and asking for 1:00 both come back
+/// as about the same minute. The limit is now reported AFTER the import, by YouTubeImporter, where
+/// it is a report of what happened rather than an estimate. Do not reintroduce an estimate here.
+///
+/// A consequence worth keeping: nothing on this window touches the network except the lookup, so
+/// there is no background task, no second yt-dlp launch, and no failure path for either.
 /// </remarks>
 public partial class UrlImportDialog : Window
 {
@@ -29,15 +30,11 @@ public partial class UrlImportDialog : Window
         _ytDlpPath = ytDlpPath;
 
         // SUBSCRIBED HERE, NOT IN XAML, AND THAT IS LOAD-BEARING. A XAML-wired TextChanged fires
-        // while InitializeComponent is still walking the tree - the Text="5:00" attribute raises it
-        // synchronously - and PredictionText is declared later in the file, so its field is still
-        // null at that moment. This app has already been killed once by a handler firing mid-
-        // InitializeComponent before the element it touched existed.
-        LengthBox.TextChanged += LengthBox_TextChanged;
-
-        // Same reasoning as LengthBox above: subscribed here, not in XAML, so a TextChanged wired
-        // during InitializeComponent's tree-walk can never fire before ImportButton and
-        // DetailsPanel - which the handler below touches - exist.
+        // while InitializeComponent is still walking the tree - a Text="..." attribute raises it
+        // synchronously - and the elements the handler touches (ImportButton, DetailsPanel) are
+        // declared later in the file, so their fields are still null at that moment. This app has
+        // already been killed once exactly that way. EVERY handler on this window is subscribed
+        // here, after InitializeComponent, and none in the markup.
         UrlBox.TextChanged += UrlBox_TextChanged;
     }
 
@@ -75,11 +72,11 @@ public partial class UrlImportDialog : Window
         TitleText.Text = meta.Title;
         DurationText.Text = $"Duration {Format(meta.Duration)}";
 
-        // SURFACED, NOT ENFORCED - the spec's ruling. State the fact and let the user decide.
+        // SURFACED, NOT ENFORCED - the spec's ruling, unchanged. Only the wording shrank: the value
+        // and a flag, with the sentence about YouTube's Terms of Service dropped as reference text.
         LicenceText.Text = meta.IsCreativeCommons
-            ? $"Licence: {meta.License} — Creative Commons."
-            : $"Licence: {meta.License ?? "not reported"}. Downloading is contrary to YouTube's " +
-              "Terms of Service except for Creative Commons material.";
+            ? $"Licence: {meta.License} — Creative Commons"
+            : $"Licence: {meta.License ?? "not reported"} — not Creative Commons";
 
         if (ImportPlanner.RequiresSection(meta.Duration))
         {
@@ -95,33 +92,6 @@ public partial class UrlImportDialog : Window
         DetailsPanel.Visibility = Visibility.Visible;
         ImportButton.IsEnabled = true;
         ErrorText.Visibility = Visibility.Collapsed;
-
-        // Setting LengthBox.Text above already raises TextChanged, which calls UpdatePrediction();
-        // this call covers the case where the new text is identical to the old (no event fires).
-        UpdatePrediction();
-    }
-
-    /// <summary>
-    /// Recomputes the predicted-obtainable line from the current length field and metadata. Pure
-    /// arithmetic - see the type-level remarks for why nothing here touches the network.
-    /// </summary>
-    /// <remarks>
-    /// A Dispatcher callback, same as any other event handler on this window - an exception
-    /// escaping it terminates the process regardless of what raised it. Subscribing in code
-    /// (constructor, after InitializeComponent) already removes today's ordering hazard; this
-    /// try/catch is the safety net for whatever the next edit introduces here, matching
-    /// Probe_Click and Import_Click.
-    /// </remarks>
-    private void LengthBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
-    {
-        try
-        {
-            UpdatePrediction();
-        }
-        catch (Exception)
-        {
-            PredictionText.Text = string.Empty;   // a missing prediction must never crash the dialog
-        }
     }
 
     /// <summary>
@@ -133,8 +103,8 @@ public partial class UrlImportDialog : Window
     /// </summary>
     /// <remarks>
     /// A Dispatcher callback like any other handler on this window - wrapped in try/catch for the
-    /// same reason as LengthBox_TextChanged, Probe_Click and Import_Click: an exception escaping
-    /// it terminates the process regardless of what raised it.
+    /// same reason as Probe_Click and Import_Click: an exception escaping it terminates the process
+    /// regardless of what raised it.
     /// </remarks>
     private void UrlBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
@@ -154,28 +124,6 @@ public partial class UrlImportDialog : Window
             _metadata = null;
             ImportButton.IsEnabled = false;
         }
-    }
-
-    private void UpdatePrediction()
-    {
-        if (_metadata is null) { PredictionText.Text = string.Empty; return; }
-        if (!TryParseClock(LengthBox.Text, out var length) || length <= TimeSpan.Zero)
-        {
-            PredictionText.Text = string.Empty;
-            return;
-        }
-
-        var predicted = ImportPlanner.PredictedObtainable(length, _metadata.Duration);
-
-        // Independent of bitrate and file size - true for every video, so the copy says so plainly
-        // rather than implying quality or size play a role.
-        PredictionText.Text =
-            $"This network reliably supplies only about a minute of any video, regardless of its " +
-            $"quality or file size — a longer request comes back shorter than asked. For this " +
-            $"{Format(length)} request, expect roughly {Format(predicted)}. A start time other " +
-            "than 0:00 is honoured only when a direct section download succeeds, which this " +
-            "network usually refuses; when it does, the import falls back to a prefix from the " +
-            "very beginning instead.";
     }
 
     private void Import_Click(object sender, RoutedEventArgs e)

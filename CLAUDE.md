@@ -16,26 +16,25 @@ Guidance for Claude Code working in this repository.
 
 ## Known follow-ups
 
-Recorded 2026-09-02, none started. Plan 3 (YouTube import) is complete, reviewed, and confirmed
-working end to end; these are improvements, not defects.
+Recorded 2026-09-02. Items 1 and 3 were done the same day (commit below); item 2 remains open.
+Plan 3 (YouTube import) is complete, reviewed, and confirmed working end to end; these are
+improvements, not defects.
 
-1. **Redesign the URL import dialog's explanatory text.** It currently carries a full paragraph
-   explaining the download limit, its bitrate independence, and the start-time caveat — reference
-   documentation written into a UI. The only line that changes the user's decision is *this network
-   will give you about a minute*. **Consider dropping the start-time field entirely** rather than
-   explaining why it does not work: strategy A always fails here, so a start time is ignored in
-   practice, and a field that never does anything next to a sentence saying it never does anything
-   is worse than no field.
+1. ~~Redesign the URL import dialog's explanatory text.~~ **Done 2026-09-02.** The dialog now
+   predicts nothing: the ~60 s limit is reported after the import, where it is a fact rather than an
+   estimate, because knowing it beforehand cannot change what the user does. The start-time field
+   was **kept**, not dropped - it is inert on this network but the 403s look specific to the
+   corporate egress IP, so it may work from home. Design:
+   `..\Visual Studio Code\Claude Code\docs\superpowers\specs\2026-09-02-url-dialog-redesign-design.md`.
 2. **Import latency is process launches, not bandwidth.** Measured from a real import: the 22 MiB
    download took ~0.5 s; `yt-dlp` resolving the URL took ~6 s, on top of a separate probe at *Look
-   up*. The feature launches `yt-dlp` **twice** for overlapping information — `--print` for
+   up*. The feature launches `yt-dlp` **twice** for overlapping information - `--print` for
    metadata, then `-g` for the direct URL. Worth investigating whether one invocation can serve
-   both. This is a real change to the probe/resolve split, not a tweak.
-3. **A fully-satisfied strategy C import with a non-zero start time is silent about starting from
-   0:00.** The clip is correct and complete; it just begins at the start of the video rather than
-   the requested offset, and nothing says so. One line, in the *Add from URL* click handler:
-   `|| (outcome.Strategy == "C" && dialog.Result.Start > TimeSpan.Zero)` alongside the existing
-   shortfall condition. **Moot if follow-up 1 removes the start-time field**, so decide that first.
+   both. This is a real change to the probe/resolve split, not a tweak. **Still open.**
+3. ~~A fully-satisfied strategy C import with a non-zero start time is silent about starting from
+   0:00.~~ **Done 2026-09-02**, and promoted from optional to essential by item 1: with the dialog
+   explaining nothing in advance, the result message became the only surface on which the user could
+   ever learn a start time was ignored.
 
 ## What this is
 

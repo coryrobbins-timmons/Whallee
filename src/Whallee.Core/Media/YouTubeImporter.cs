@@ -220,27 +220,42 @@ public static class YouTubeImporter
         await ClipTrimmer.TrimAsync(ffmpegPath, prefix, trimmed, length, TimeSpan.Zero, ct)
             .ConfigureAwait(false);
 
-        // THREE DISTINCT OUTCOMES, not two - length alone cannot tell "got the section" from "got
+        // THE BYTE COUNT GOES TO THE LOG, NOT TO THE USER. It was diagnostic detail in a sentence
+        // the user reads to decide nothing; seconds are what they act on. It is still recorded.
+        progress?.Report(
+            $"Fetched {fetched / 1024 / 1024} MiB, trimmed to {length.TotalSeconds:F0}s (strategy C).");
+
+        // FOUR DISTINCT OUTCOMES, not two - length alone cannot tell "got the section" from "got
         // the wrong section at full length". Ask for start 1:30, length 0:30 on a 5-minute video:
         // C always fetches from 0:00, so a length match here means the OPENING 30 seconds, not the
         // requested ones. Silently calling that "the requested section" would be confidently wrong.
+        //
+        // The two deviations are INDEPENDENT and can occur together, so a short clip that also
+        // ignored a start time reports both. The dialog no longer explains the ~60s ceiling in
+        // advance, which makes these messages the only place the user ever learns what this network
+        // did - an unreported deviation is now invisible rather than merely redundant.
+        var cameUpShort = length < request.Length;
+        var startIgnored = request.Start > TimeSpan.Zero;
+
         string message;
-        if (length < request.Length)
+        if (cameUpShort && startIgnored)
         {
-            // Existing shortfall message - left exactly as it was. It already covers the length
-            // mismatch; whether Start was also non-zero doesn't change what happened here (a
-            // prefix that came up short), so it isn't mentioned.
-            message = $"YouTube sent {fetched / 1024 / 1024} MiB before refusing more, which is " +
-                      $"{length.TotalSeconds:F0} seconds rather than the {request.Length.TotalSeconds:F0} " +
-                      "requested. This is a restriction on this network, not a problem with the link, " +
-                      "and the clip is still usable.";
+            message = $"You asked for {Clock(request.Length)} and got {Clock(length)}, starting " +
+                      $"from the beginning rather than {Clock(request.Start)}. This network " +
+                      "supplies about a minute of any video and refuses direct section downloads " +
+                      "— the clip is complete and usable.";
         }
-        else if (request.Start > TimeSpan.Zero)
+        else if (cameUpShort)
         {
-            message = "This clip starts from the beginning of the video, not the requested " +
-                      $"{request.Start.TotalSeconds:F0}-second start time. Strategy C can only " +
-                      "fetch a prefix of the file, so it can never seek into the middle - only " +
-                      "how much of the opening it captured, never where it starts.";
+            message = $"You asked for {Clock(request.Length)} and got {Clock(length)}. This " +
+                      "network supplies about a minute of any video — the clip is complete and " +
+                      "usable.";
+        }
+        else if (startIgnored)
+        {
+            message = $"This clip starts at the beginning rather than {Clock(request.Start)}. A " +
+                      "start time only works when a direct section download succeeds, which this " +
+                      "network refused.";
         }
         else
         {
@@ -367,6 +382,10 @@ public static class YouTubeImporter
             throw;
         }
     }
+
+    /// <summary>m:ss, or h:mm:ss past an hour - the same shape the import dialog's fields use.</summary>
+    private static string Clock(TimeSpan value) =>
+        value.TotalHours >= 1 ? value.ToString(@"h\:mm\:ss") : value.ToString(@"m\:ss");
 
     /// <summary>Same precedent as ClipTrimmer.LastLine: the last non-empty line of a process's stderr.</summary>
     private static string LastLine(string text)

@@ -153,10 +153,15 @@ public partial class LibraryPage : UserControl
 
                 await _model.LoadAsync();
 
-                // A short clip is the expected result on this network, not a failure - the message
-                // already explains that plainly, so surface it rather than letting the user
-                // discover the shortfall by watching a shorter-than-requested loop.
-                if (outcome.ActualLength < dialog.Result.Length)
+                // SHOWN ONLY WHEN REALITY DIFFERED FROM THE REQUEST. A short clip is the expected
+                // result on this network, not a failure, and so is a start time that was ignored -
+                // strategy C can only ever fetch a prefix. Neither is an error, but the dialog no
+                // longer explains the limit in advance, so this message is the ONLY place the user
+                // learns what actually happened; without the second condition a clip that quietly
+                // began at 0:00 instead of the requested offset would say nothing at all. A
+                // full-length import with no start time still adds its tile silently.
+                if (outcome.ActualLength < dialog.Result.Length ||
+                    (outcome.Strategy == "C" && dialog.Result.Start > TimeSpan.Zero))
                     MessageBox.Show(outcome.Message, "Whallee",
                         MessageBoxButton.OK, MessageBoxImage.Information);
             }
