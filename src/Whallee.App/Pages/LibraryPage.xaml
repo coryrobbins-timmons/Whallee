@@ -27,6 +27,12 @@
                     <DataTemplate>
                         <Button Margin="6" Padding="0" BorderThickness="1" Tag="{Binding Path}"
                                 Click="Tile_Click">
+                            <!-- Deliberately EMPTY. Populated in code on ContextMenuOpening,
+                                 because the "Apply to" submenu lists the displays attached at that
+                                 moment. See ClipContextMenu. -->
+                            <Button.ContextMenu>
+                                <ContextMenu />
+                            </Button.ContextMenu>
                             <StackPanel Width="240">
                                 <Image Height="135" Stretch="UniformToFill"
                                        Source="{Binding ThumbnailPath,

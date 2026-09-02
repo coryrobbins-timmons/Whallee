@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Whallee.App.Dialogs;
 using Whallee.App.Services;
 using Whallee.App.ViewModels;
@@ -12,6 +13,7 @@ public partial class LibraryPage : UserControl
     private readonly LibraryViewModel _model;
     private readonly UiReporter _reporter;
     private bool _loaded;
+    private ClipMenuActions _menuActions = null!;   // assigned in the constructor
 
     public LibraryPage(EngineHost engine, UiReporter reporter)
     {
@@ -23,6 +25,12 @@ public partial class LibraryPage : UserControl
         TargetSelector.ItemsSource = _model.Targets;
         TargetSelector.SelectedIndex = 0;
         TileHost.ItemsSource = _model.Tiles;
+
+        // SUBSCRIBED HERE, after InitializeComponent, alongside the other TileHost wiring.
+        // ContextMenuOpening BUBBLES, so one subscription on the host serves every tile - the tiles
+        // themselves do not exist yet and could not be subscribed individually.
+        TileHost.ContextMenuOpening += TileHost_ContextMenuOpening;
+        _menuActions = new ClipMenuActions(Apply: ApplyFromMenu);
 
         Loaded += OnLoaded;
     }
@@ -173,6 +181,78 @@ public partial class LibraryPage : UserControl
         catch (Exception ex)
         {
             _reporter.Report($"could not import that link: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Fills the tile's (empty) ContextMenu just before it opens.
+    /// </summary>
+    /// <remarks>
+    /// SYNCHRONOUS, AND MUST STAY THAT WAY. Setting e.Handled to suppress the menu is only
+    /// meaningful before this returns, so this handler can never become async void.
+    /// </remarks>
+    private void TileHost_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        try
+        {
+            var button = FindTileButton(e.OriginalSource);
+
+            // Right-clicking the empty area around the tiles: show nothing rather than an empty
+            // menu, which would look like a bug.
+            if (button?.DataContext is not ClipTile tile || button.ContextMenu is null)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            ClipContextMenu.Populate(button.ContextMenu, tile, _menuActions);
+        }
+        catch (Exception ex)
+        {
+            e.Handled = true;
+            _reporter.Report($"could not open that menu: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Walks up from whatever was under the cursor - the Image or the TextBlock, not the Button -
+    /// to the tile's Button.
+    /// </summary>
+    /// <remarks>
+    /// e.OriginalSource, not e.Source: ContextMenuService raises this on the element that owns the
+    /// menu, but a routed event's Source can be retargeted on its way up to TileHost, and
+    /// OriginalSource is the one that is not.
+    /// </remarks>
+    private static Button? FindTileButton(object? source)
+    {
+        var current = source as DependencyObject;
+
+        while (current is not null)
+        {
+            if (current is Button { DataContext: ClipTile } button) return button;
+
+            // Guarded: VisualTreeHelper.GetParent throws on anything that is not a Visual.
+            current = current is Visual ? VisualTreeHelper.GetParent(current) : null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The menu's "Apply to" items. Synchronous for the same reason Tile_Click is: ApplyClip runs
+    /// a full engine restart (~3 s) inline on this thread, which is correct here because Restart
+    /// pumps throughout, so the desktop stays responsive.
+    /// </summary>
+    private void ApplyFromMenu(ClipTile tile, string? deviceName)
+    {
+        try
+        {
+            _model.ApplyClip(tile.Path, deviceName);
+        }
+        catch (Exception ex)
+        {
+            // A menu Click is a Dispatcher callback: an escaping exception terminates the app.
+            _reporter.Report($"could not apply that clip: {ex.Message}");
         }
     }
 
