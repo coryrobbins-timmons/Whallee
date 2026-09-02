@@ -107,56 +107,67 @@ public partial class LibraryPage : UserControl
 
     /// <summary>
     /// async void, because a Click handler that awaits has no other shape - which is exactly why
-    /// the body is wrapped. ImportAsync launches two child processes and does network and file I/O,
-    /// so an exception escaping here is not hypothetical, and it can fail two ways: by returning an
-    /// ImportOutcome with Success == false and a user-facing Message, or by throwing (ClipTrimmer
-    /// throws InvalidOperationException, the library move can throw IOException). Same defect class
-    /// as AddFromFile_Click and Tile_Click.
+    /// the ENTIRE body, including locating yt-dlp and running the dialog, is wrapped. Locate scans
+    /// the winget package tree with Directory.EnumerateDirectories when the configured path doesn't
+    /// resolve, which is real synchronous I/O that can throw (UnauthorizedAccessException,
+    /// IOException) on a locked-down or cloud-backed path, and this thread owns windows re-parented
+    /// into Explorer's desktop - so that call is Task.Run'd too. ImportAsync itself launches two
+    /// child processes and does network and file I/O, so an exception escaping any of this is not
+    /// hypothetical, and it can fail two ways: by returning an ImportOutcome with Success == false
+    /// and a user-facing Message, or by throwing (ClipTrimmer throws InvalidOperationException, the
+    /// library move can throw IOException). Same defect class as AddFromFile_Click and Tile_Click.
     /// </summary>
     private async void AddFromUrl_Click(object sender, RoutedEventArgs e)
     {
-        var ytDlp = YtDlpLocator.Locate(null);
-        if (ytDlp is null)
-        {
-            MessageBox.Show("yt-dlp was not found on this machine.", "Whallee",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var dialog = new UrlImportDialog(ytDlp) { Owner = Window.GetWindow(this) };
-        if (dialog.ShowDialog() != true || dialog.Result is null) return;
-
-        AddFromUrl.IsEnabled = false;
         try
         {
-            var progress = new Progress<string>(m => _reporter.Report(m));
-            var outcome = await _model.ImportFromUrlAsync(dialog.Result, progress);
-
-            if (!outcome.Success)
+            // ConfiguredYtDlpPath, not null: passing null skips the configured-path fast path
+            // inside Locate and forces a PATH/winget scan even when the configured path still
+            // works, which could falsely report yt-dlp missing. Task.Run because that scan is
+            // real disk I/O.
+            var ytDlp = await Task.Run(() => YtDlpLocator.Locate(_model.ConfiguredYtDlpPath));
+            if (ytDlp is null)
             {
-                // Success == false always carries a user-facing Message, never null - show it
-                // as-is rather than composing a new one.
-                MessageBox.Show(outcome.Message, "Whallee",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("yt-dlp was not found on this machine.", "Whallee",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            await _model.LoadAsync();
+            var dialog = new UrlImportDialog(ytDlp) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
-            // A short clip is the expected result on this network, not a failure - the message
-            // already explains that plainly, so surface it rather than letting the user discover
-            // the shortfall by watching a shorter-than-requested loop.
-            if (outcome.ActualLength < dialog.Result.Length)
-                MessageBox.Show(outcome.Message, "Whallee",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+            AddFromUrl.IsEnabled = false;
+            try
+            {
+                var progress = new Progress<string>(m => _reporter.Report(m));
+                var outcome = await _model.ImportFromUrlAsync(dialog.Result, progress);
+
+                if (!outcome.Success)
+                {
+                    // Success == false always carries a user-facing Message, never null - show it
+                    // as-is rather than composing a new one.
+                    MessageBox.Show(outcome.Message, "Whallee",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                await _model.LoadAsync();
+
+                // A short clip is the expected result on this network, not a failure - the message
+                // already explains that plainly, so surface it rather than letting the user
+                // discover the shortfall by watching a shorter-than-requested loop.
+                if (outcome.ActualLength < dialog.Result.Length)
+                    MessageBox.Show(outcome.Message, "Whallee",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            finally
+            {
+                AddFromUrl.IsEnabled = true;
+            }
         }
         catch (Exception ex)
         {
             _reporter.Report($"could not import that link: {ex.Message}");
-        }
-        finally
-        {
-            AddFromUrl.IsEnabled = true;
         }
     }
 

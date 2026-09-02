@@ -24,6 +24,15 @@ public sealed class LibraryViewModel
     /// <summary>Device names in the same order as <see cref="Targets"/>, null for "All displays".</summary>
     public IReadOnlyList<string?> TargetDeviceNames => _targetDeviceNames;
 
+    /// <summary>
+    /// The persisted yt-dlp path, so a caller that needs to locate yt-dlp before
+    /// <see cref="ImportFromUrlAsync"/> runs (e.g. to build the URL-import dialog) can pass the
+    /// same hint <see cref="ImportFromUrlAsync"/> itself uses, rather than a bare <c>null</c> that
+    /// would skip the configured path and force a PATH/winget scan even when the configured path
+    /// still works.
+    /// </summary>
+    public string? ConfiguredYtDlpPath => _engine.Config.YtDlpPath;
+
     public LibraryViewModel(EngineHost engine, UiReporter reporter)
     {
         _engine = engine;
