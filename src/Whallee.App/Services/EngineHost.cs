@@ -44,6 +44,20 @@ public sealed class EngineHost : IDisposable
     public IReadOnlyList<string> LastErrors =>
         _engine?.LastErrors ?? Array.Empty<string>();
 
+    /// <summary>
+    /// What each display is playing right now.
+    /// </summary>
+    /// <remarks>
+    /// THE ONLY PLACE A SHUFFLING DISPLAY'S CURRENT CLIP IS KNOWABLE. ClipResolver picks it at
+    /// random when the engine starts and nothing writes it to config, so config can answer this
+    /// question for a pinned display and only for a pinned display.
+    ///
+    /// Empty before Start() and after Dispose(), rather than throwing - callers are UI code asking
+    /// "what is on screen", and "nothing yet" is a real answer.
+    /// </remarks>
+    public IReadOnlyList<ActivePlayer> ActivePlayers =>
+        _engine?.ActivePlayers ?? Array.Empty<ActivePlayer>();
+
     public void Start()
     {
         // Saved BEFORE Start(). No host window exists yet, so nothing shares an input queue with
