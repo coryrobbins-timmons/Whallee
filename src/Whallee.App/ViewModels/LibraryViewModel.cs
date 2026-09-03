@@ -18,19 +18,26 @@ namespace Whallee.App.ViewModels;
 /// Manages the clip library — importing, deleting, renaming, and pinning clips to displays.
 /// </summary>
 /// <remarks>
-/// THREE CONFIG-TOUCHING OPERATIONS have differing restart policies:
+/// RESTART POLICY across public methods that touch config:
 ///
-/// • <c>ImportFileAsync</c> and <c>ImportFromUrlAsync</c> persist discovered executable paths
-///   (ffmpeg, yt-dlp) with SaveConfig only. Recording where an executable lives is no reason to
-///   restart the engine.
+/// • Constructor persists discovered ffmpeg path with SaveConfig. Recording where an
+///   executable lives is no reason to restart the engine.
 ///
-/// • <c>DeleteClipAsync</c> uses ApplyConfigChange only when something actually referenced the
-///   deleted clip (checked by ClipRemoval.ClearAssignments). Deleting an unpinned clip costs no
-///   restart.
+/// • <c>ApplyClip</c> always uses ApplyConfigChange and restarts unconditionally. It pins a
+///   clip to a display and the engine must re-attach.
 ///
-/// • <c>RenameClipAsync</c> always uses SaveConfig and never restarts. mpv does not lock a clip
-///   it is playing (measured 2026-09-03), so a display showing the renamed clip keeps playing
-///   uninterrupted while config is repointed underneath it.
+/// • <c>ImportFileAsync</c> touches no config — it only copies the file into the library.
+///
+/// • <c>ImportFromUrlAsync</c> persists discovered yt-dlp path with SaveConfig only.
+///   Recording where an executable lives is no reason to restart the engine.
+///
+/// • <c>DeleteClipAsync</c> uses ApplyConfigChange only when something actually referenced
+///   the deleted clip (checked by ClipRemoval.ClearAssignments). Deleting an unpinned clip
+///   costs no restart.
+///
+/// • <c>RenameClipAsync</c> always uses SaveConfig and never restarts. mpv does not lock a
+///   clip it is playing (measured 2026-09-03), so a display showing the renamed clip keeps
+///   playing uninterrupted while config is repointed underneath it.
 /// </remarks>
 public sealed class LibraryViewModel
 {
