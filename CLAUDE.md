@@ -156,6 +156,19 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   clip is expected, not a bug.**
 - `Documents` is OneDrive-redirected, so `SpecialFolder.MyDocuments` is *not* local `Documents`, and
   library files may be cloud-only placeholders.
+- **SentinelOne is the on-access scanner here, not Defender** (Defender real-time protection is
+  *off*). It opens a file for a few milliseconds right after that file is written or renamed into
+  place, anywhere on this machine - `%LOCALAPPDATA%\Temp` included, so tests are not exempt. While
+  it holds that handle, a `File.Move(src, dst, overwrite: true)` **onto** that file is refused with
+  **ERROR_ACCESS_DENIED**, surfacing as `UnauthorizedAccessException` - which is *not* an
+  `IOException`, so catching `IOException` alone misses it - and the source is left on disk.
+  Measured over 40,000 back-to-back write-then-replace pairs: **15 refusals idle, 132 with a build
+  running alongside**, longest hold **19.5 ms**, every one cleared on the very next attempt. That
+  load sensitivity is why it presented as a test that failed roughly 1 run in 6 under
+  `dotnet build` + `dotnet test` and never under `dotnet test` alone. `ConfigStore.Save` waits it
+  out with a bounded retry and deletes its temp file on failure; **any new replace-in-place code
+  needs to do the same.** It is not OneDrive - `Path.GetTempPath()` is under `AppData\Local`, which
+  is not redirected.
 - GPO-managed machine: `Register-ScheduledTask` and `schtasks /SC ONLOGON` are **denied**. Logon
   autostart uses the Startup folder.
 - **The installed copy is not the one you build.** Set up 2026-09-02. `tools\publish-app.ps1`

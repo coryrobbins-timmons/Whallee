@@ -119,4 +119,46 @@ public class ConfigStoreTests : IDisposable
         Assert.Equal(@"C:\second", ConfigStore.Load(path).LibraryFolder);
         Assert.False(File.Exists(path + ".tmp"), "the temp file should have been moved, not left");
     }
+
+    [Fact]
+    public void Save_SucceedsWhenTheTargetIsBrieflyHeldOpenByAnotherProcess()
+    {
+        // Replacing an existing file needs that file free of every other handle, so an on-access
+        // scanner that opens config.json in the moment after a save renames it into place makes
+        // the NEXT save fail. This holds exactly that kind of handle, for longer than the scanner
+        // was ever measured holding one (19.5 ms), so the save cannot pass by getting lucky.
+        var path = PathFor("contended.json");
+        ConfigStore.Save(new WhalleeConfig { LibraryFolder = @"C:\first" }, path);
+
+        var scanner = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        // A dedicated thread, not the pool: under xUnit's parallelism a queued work item can be
+        // held off long past its delay, which would make the release time the thing under test.
+        var release = new Thread(() => { Thread.Sleep(40); scanner.Dispose(); }) { IsBackground = true };
+        release.Start();
+
+        ConfigStore.Save(new WhalleeConfig { LibraryFolder = @"C:\second" }, path);
+        release.Join();
+
+        Assert.Equal(@"C:\second", ConfigStore.Load(path).LibraryFolder);
+        Assert.False(File.Exists(path + ".tmp"), "the temp file should have been moved, not left");
+    }
+
+    [Fact]
+    public void Save_ThatNeverGetsTheTarget_LeavesTheOldConfigAndNoTempFile()
+    {
+        // The companion to the test above, and the reason waiting for the target is not just a
+        // retry loop hiding a leak: this handle is held for the whole call, so the wait runs out.
+        // A save that genuinely fails must still leave nothing behind but the config it replaced.
+        var path = PathFor("locked.json");
+        ConfigStore.Save(new WhalleeConfig { LibraryFolder = @"C:\first" }, path);
+
+        using var scanner = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+
+        var failure = Record.Exception(
+            () => ConfigStore.Save(new WhalleeConfig { LibraryFolder = @"C:\second" }, path));
+
+        Assert.NotNull(failure);
+        Assert.False(File.Exists(path + ".tmp"), "a failed save must not leave its temp file behind");
+        Assert.Equal(@"C:\first", ConfigStore.Load(path).LibraryFolder);
+    }
 }
