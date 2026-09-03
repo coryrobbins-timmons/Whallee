@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -30,7 +33,11 @@ public partial class LibraryPage : UserControl
         // ContextMenuOpening BUBBLES, so one subscription on the host serves every tile - the tiles
         // themselves do not exist yet and could not be subscribed individually.
         TileHost.ContextMenuOpening += TileHost_ContextMenuOpening;
-        _menuActions = new ClipMenuActions(Apply: ApplyFromMenu);
+        _menuActions = new ClipMenuActions(
+            Apply: ApplyFromMenu,
+            PlayInDefaultPlayer: PlayInDefaultPlayer,
+            OpenFileLocation: OpenFileLocation,
+            ShowDetails: ShowDetails);
 
         Loaded += OnLoaded;
     }
@@ -253,6 +260,83 @@ public partial class LibraryPage : UserControl
         {
             // A menu Click is a Dispatcher callback: an escaping exception terminates the app.
             _reporter.Report($"could not apply that clip: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// async void, and wrapped end to end for it. Process.Start with UseShellExecute resolves the
+    /// file association through the shell, which on a OneDrive-backed path is real I/O - hence the
+    /// Task.Run - and throws Win32Exception when there is no association at all. That is a normal
+    /// outcome on a machine with no video player installed, not a crash, so it gets its own
+    /// message rather than a raw error string.
+    /// </summary>
+    private async void PlayInDefaultPlayer(ClipTile tile)
+    {
+        try
+        {
+            await Task.Run(() =>
+            {
+                using var process = Process.Start(
+                    new ProcessStartInfo(tile.Path) { UseShellExecute = true });
+            });
+        }
+        catch (Win32Exception)
+        {
+            MessageBox.Show(
+                $"Windows has no app associated with {Path.GetExtension(tile.Path)} files.",
+                "Whallee", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not play {tile.FileName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// async void, wrapped end to end.
+    /// </summary>
+    /// <remarks>
+    /// Arguments, NOT ArgumentList, and this is the one place in the codebase where that is
+    /// correct. explorer.exe wants "/select,&lt;path&gt;" as a SINGLE token with the path quoted
+    /// inside it; ArgumentList would escape it as a separate argument and explorer would silently
+    /// open the Documents folder instead of highlighting the file. That is the classic failure of
+    /// this call.
+    /// </remarks>
+    private async void OpenFileLocation(ClipTile tile)
+    {
+        try
+        {
+            await Task.Run(() =>
+            {
+                using var process = Process.Start(new ProcessStartInfo("explorer.exe")
+                {
+                    Arguments = $"/select,\"{tile.Path}\"",
+                    UseShellExecute = true
+                });
+            });
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not open the folder for {tile.FileName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Synchronous: the dialog does its own probing off-thread and shows instantly, so there is
+    /// nothing to await here. Still wrapped - a menu Click is a Dispatcher callback.
+    /// </summary>
+    private void ShowDetails(ClipTile tile)
+    {
+        try
+        {
+            new ClipDetailsDialog(tile.Path, _model.ConfiguredFfmpegPath)
+            {
+                Owner = Window.GetWindow(this)
+            }.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not show details for {tile.FileName}: {ex.Message}");
         }
     }
 

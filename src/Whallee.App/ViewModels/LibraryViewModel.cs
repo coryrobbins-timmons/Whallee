@@ -33,6 +33,13 @@ public sealed class LibraryViewModel
     /// </summary>
     public string? ConfiguredYtDlpPath => _engine.Config.YtDlpPath;
 
+    /// <summary>
+    /// The ffmpeg path in use, already discovered and persisted by the constructor. Mirrors
+    /// <see cref="ConfiguredYtDlpPath"/>. Empty when ffmpeg was not found, in which case callers
+    /// skip probing rather than launching nothing.
+    /// </summary>
+    public string ConfiguredFfmpegPath => _engine.Config.FfmpegPath;
+
     public LibraryViewModel(EngineHost engine, UiReporter reporter)
     {
         _engine = engine;

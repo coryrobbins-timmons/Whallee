@@ -5,7 +5,11 @@ using Whallee.Core.Displays;
 namespace Whallee.App.Pages;
 
 /// <summary>What the tile menu can do. Supplied by the page that owns the menu.</summary>
-internal sealed record ClipMenuActions(Action<ClipTile, string?> Apply);
+internal sealed record ClipMenuActions(
+    Action<ClipTile, string?> Apply,
+    Action<ClipTile> PlayInDefaultPlayer,
+    Action<ClipTile> OpenFileLocation,
+    Action<ClipTile> ShowDetails);
 
 /// <summary>
 /// Builds the right-click menu for one library tile, fresh on every open.
@@ -33,6 +37,16 @@ internal static class ClipContextMenu
         menu.Items.Clear();
 
         menu.Items.Add(BuildApplyTo(tile, actions));
+        Add(menu, "Play in default player", () => actions.PlayInDefaultPlayer(tile));
+        Add(menu, "Open file location", () => actions.OpenFileLocation(tile));
+        Add(menu, "Details…", () => actions.ShowDetails(tile));
+    }
+
+    private static void Add(ContextMenu menu, string header, Action onClick)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => onClick();
+        menu.Items.Add(item);
     }
 
     private static MenuItem BuildApplyTo(ClipTile tile, ClipMenuActions actions)
