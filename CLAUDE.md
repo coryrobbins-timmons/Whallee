@@ -158,6 +158,28 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   library files may be cloud-only placeholders.
 - GPO-managed machine: `Register-ScheduledTask` and `schtasks /SC ONLOGON` are **denied**. Logon
   autostart uses the Startup folder.
+- **The installed copy is not the one you build.** Set up 2026-09-02. `tools\publish-app.ps1`
+  publishes the self-contained Release build to `%LOCALAPPDATA%\Whallee\app\` (~160 MB, 249 files),
+  and `-Shortcut` writes the logon shortcut to
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Whallee.lnk`. **Delete that .lnk to stop
+  Whallee starting at logon — nothing else needs undoing.** Three reasons the installed copy is not
+  simply `bin\Release\`:
+  - `bin\` is git-ignored, so `git clean -fdx` would delete it and autostart would fail at the next
+    logon with nothing pointing at the cause.
+  - The repo is under OneDrive-redirected Documents, which on this machine has a history of locking
+    files and creating cloud placeholders. An exe Windows launches at logon should not depend on a
+    sync client.
+  - Most practically: if the autostarted copy were the one you rebuild, Whallee would be running at
+    every logon holding the DLLs you are about to overwrite, and **MSB3021/MSB3027 lock failures
+    would become the default build experience.** Separating them keeps `bin\` free.
+
+  Consequence: **code changes do not reach the autostarted copy until you re-run that script.** It
+  refuses to publish while Whallee is running rather than killing it — exiting via the tray is the
+  only correct way to stop it, since it owns windows re-parented into Explorer's desktop.
+- `WhalleeConfig.StartWithWindows` **exists but is wired to nothing** — only config round-trip tests
+  reference it. Autostart is the shortcut above and nothing else. Making the flag actually create and
+  delete that shortcut is Plan 2 task 10, still deferred, and wants the Settings page (task 9) so
+  there is a way to toggle it without hand-editing `config.json`.
 - **WinUI 3 does not build on this machine** — the XAML compiler fails. WPF builds clean. See the
   spec's Architecture amendment for the evidence before attempting WinUI again.
 - **The owner's terminal duplicates pasted text onto one line**, which has broken several commands.
