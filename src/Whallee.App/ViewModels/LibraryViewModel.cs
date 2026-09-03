@@ -14,6 +14,24 @@ using VbUiOption = Microsoft.VisualBasic.FileIO.UIOption;
 
 namespace Whallee.App.ViewModels;
 
+/// <summary>
+/// Manages the clip library — importing, deleting, renaming, and pinning clips to displays.
+/// </summary>
+/// <remarks>
+/// THREE CONFIG-TOUCHING OPERATIONS have differing restart policies:
+///
+/// • <c>ImportFileAsync</c> and <c>ImportFromUrlAsync</c> persist discovered executable paths
+///   (ffmpeg, yt-dlp) with SaveConfig only. Recording where an executable lives is no reason to
+///   restart the engine.
+///
+/// • <c>DeleteClipAsync</c> uses ApplyConfigChange only when something actually referenced the
+///   deleted clip (checked by ClipRemoval.ClearAssignments). Deleting an unpinned clip costs no
+///   restart.
+///
+/// • <c>RenameClipAsync</c> always uses SaveConfig and never restarts. mpv does not lock a clip
+///   it is playing (measured 2026-09-03), so a display showing the renamed clip keeps playing
+///   uninterrupted while config is repointed underneath it.
+/// </remarks>
 public sealed class LibraryViewModel
 {
     private readonly EngineHost _engine;
@@ -204,6 +222,10 @@ public sealed class LibraryViewModel
 
             try
             {
+                // DELIBERATELY OVERWRITES A FILE OF THE SAME NAME. See RenameClipAsync's clash check:
+                // an import overwrite replaces the file the user just chose, which is predictable; a
+                // rename overwrite would destroy a different clip the user never mentioned. Both are
+                // intentional and differ on purpose.
                 File.Copy(sourcePath, target, overwrite: true);
             }
             catch (IOException ex) when (replacing)
@@ -481,6 +503,9 @@ public sealed class LibraryViewModel
         var sameFile = string.Equals(Path.GetFullPath(clipPath), Path.GetFullPath(newPath),
                                      StringComparison.OrdinalIgnoreCase);
 
+        // DELIBERATELY REFUSES A NAME CLASH. See ImportFileAsync: an import overwrite replaces the
+        // file the user just chose, which is predictable; a rename overwrite would destroy a different
+        // clip the user never mentioned. Both are intentional and differ on purpose.
         if (!sameFile && File.Exists(newPath))
         {
             _reporter.Report($"could not rename: {newName} is already in the library");
@@ -535,6 +560,9 @@ public sealed class LibraryViewModel
             var from = _thumbnails.CachePathFor(oldClipPath, stamp.Value);
             var to = _thumbnails.CachePathFor(newClipPath, stamp.Value);
 
+            // A CASE-ONLY RENAME (Forest.mp4 -> forest.mp4) produces identical cache keys, because
+            // CacheFileName hashes clipPath.ToLowerInvariant(). File.Move is then called with from==to,
+            // which is harmless and already swallowed by the catch. This case exists and is covered.
             if (File.Exists(from)) File.Move(from, to, overwrite: true);
         }
         catch (Exception) { }
