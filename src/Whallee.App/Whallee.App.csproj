@@ -11,6 +11,19 @@
     <RootNamespace>Whallee.App</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+
+    <!--
+      Embedded in the exe, which is what makes the Startup-folder shortcut and the taskbar show it
+      without either of them naming an icon file. Whallee.ico carries 9 sizes (16-256); Windows
+      picks per context, and the tray takes the 16/20/24 entries.
+
+      Whallee-icon-source.png beside it is the exact square crop the .ico was generated from - kept
+      so the icon can be rebuilt or retuned without re-deriving the crop by eye. The crop is tight
+      on the head deliberately: the full scene it came from is unreadable below about 48px, because
+      subject and background share one sepia palette. The eyes survive the downscale; the city does
+      not.
+    -->
+    <ApplicationIcon>Whallee.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <!-- PINNED. The 2.4.x line requires net10.0-windows and fails NU1202 here; measured. -->
