@@ -6,6 +6,7 @@ namespace Whallee.App;
 public partial class MainWindow : Window
 {
     private Pages.LibraryPage? _libraryPage;
+    private Pages.SettingsPage? _settingsPage;
 
     public MainWindow()
     {
@@ -40,7 +41,7 @@ public partial class MainWindow : Window
     private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         ShowPage(PageSelector.SelectedIndex);
 
-    // The settings page arrives in Task 9; until then index 1 shows a placeholder.
+    // Both pages are built once and reused, so each gets a Refresh() on show.
     //
     // PageHost is null-checked because SelectionChanged fires DURING InitializeComponent: the
     // ListBox carries SelectedIndex="0" and raises the event from ItemsControl.EndInit, which
@@ -69,6 +70,17 @@ public partial class MainWindow : Window
             return;
         }
 
-        PageHost.Content = new TextBlock { Text = "Settings" };
+        var host = (App)Application.Current;
+
+        // BUILT ONCE AND REUSED, for the same reason LibraryPage is: constructing it enumerates
+        // displays and reads the logon shortcut off disk, and a new instance on every page switch
+        // would also throw away any pending, unapplied edits.
+        _settingsPage ??= new Pages.SettingsPage(host.Engine!, host.Reporter);
+
+        // Cheap, and it keeps the rows honest: displays change under this app while it runs, and
+        // the shortcut can be deleted by hand from outside it.
+        _settingsPage.Refresh();
+
+        PageHost.Content = _settingsPage;
     }
 }
