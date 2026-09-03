@@ -154,4 +154,30 @@ public class SettingsDraftTests
                     (@"\\.\DISPLAY5", DisplayMode.Shuffle, null),
                     (@"\\.\DISPLAY1", DisplayMode.Shuffle, null))));
     }
+
+    // ---- which clip the pin dropdown starts on ------------------------------
+
+    // The saved pin wins over what is playing: a pinned display that fell back to a random clip
+    // (its file deleted or not yet synced) is still CONFIGURED for the pin the user chose.
+    [Fact]
+    public void InitialPinPrefersTheSavedPinOverWhatIsPlaying() =>
+        Assert.Equal("forest.mp4", SettingsDraft.InitialPin("forest.mp4", "ocean.mp4"));
+
+    [Fact]
+    public void InitialPinFallsBackToWhatIsPlaying() =>
+        Assert.Equal("ocean.mp4", SettingsDraft.InitialPin(null, "ocean.mp4"));
+
+    [Fact]
+    public void InitialPinIsNullWhenNothingIsSavedOrPlaying() =>
+        Assert.Null(SettingsDraft.InitialPin(null, null));
+
+    [Fact]
+    public void InitialPinTreatsBlankAsAbsent() =>
+        Assert.Equal("ocean.mp4", SettingsDraft.InitialPin("   ", "ocean.mp4"));
+
+    // ClipResolver accepts a rooted pin inside the library, so the dropdown must match on the bare
+    // name or it would never select the saved entry.
+    [Fact]
+    public void InitialPinReducesARootedSavedPinToItsFileName() =>
+        Assert.Equal("forest.mp4", SettingsDraft.InitialPin(@"C:\lib\forest.mp4", null));
 }

@@ -96,6 +96,45 @@ public partial class SettingsPage : UserControl
         }
 
         RefreshApplyButton();
+
+        // Started, not awaited: the rows above are already usable because each seeded its pin from
+        // config. This only adds the OTHER choices to the dropdowns.
+        LoadClips();
+    }
+
+    /// <summary>
+    /// async void, and wrapped end to end for it. Listing the library is disk I/O on a
+    /// OneDrive-backed folder, which is why it cannot happen inside the synchronous Refresh - this
+    /// thread owns windows parented into Explorer's desktop.
+    /// </summary>
+    /// <remarks>
+    /// Rebuilds the rows on completion so each dropdown gains its items. The rebuild runs under the
+    /// _loading guard: assigning ItemsSource and SelectedItem raises SelectionChanged exactly as a
+    /// user's pick does, and without the guard simply opening this page would mark it dirty.
+    /// </remarks>
+    private async void LoadClips()
+    {
+        try
+        {
+            await _model.LoadClipsAsync();
+
+            _loading = true;
+            try
+            {
+                BuildDisplayRows();
+            }
+            finally
+            {
+                _loading = false;
+            }
+
+            RefreshApplyButton();
+        }
+        catch (Exception ex)
+        {
+            _loading = false;
+            _reporter.Report($"could not load the clip list: {ex.Message}");
+        }
     }
 
     private void RefreshApplyButton() => ApplyButton.IsEnabled = _model.IsDirty;
@@ -107,8 +146,9 @@ public partial class SettingsPage : UserControl
         foreach (var row in _model.Displays)
         {
             var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var name = new TextBlock
@@ -130,6 +170,32 @@ public partial class SettingsPage : UserControl
             Grid.SetColumn(playing, 1);
             grid.Children.Add(playing);
 
+            // Captured per iteration so each handler edits its own row.
+            var captured = row;
+
+            // WHICH clip to pin, chosen from the library rather than inferred from playback. This
+            // is what makes pinning independent of engine state - see DisplayRow.SelectedClip for
+            // the defect that came of inferring it.
+            var clips = new ComboBox
+            {
+                ItemsSource = _model.LibraryClips,
+                SelectedItem = row.SelectedClip,
+                Margin = new Thickness(0, 0, 14, 0),
+                IsEnabled = _model.LibraryClips.Count > 0,
+                ToolTip = _model.LibraryClips.Count > 0
+                    ? "The clip this display plays when it is pinned."
+                    : "The library is empty, so there is no clip to pin to."
+            };
+            clips.SelectionChanged += (_, _) =>
+            {
+                if (_loading) return;
+
+                captured.SelectedClip = clips.SelectedItem as string;
+                RefreshApplyButton();
+            };
+            Grid.SetColumn(clips, 2);
+            grid.Children.Add(clips);
+
             // GROUPNAME IS PER ROW, AND THAT IS LOAD-BEARING. RadioButtons with no GroupName group
             // by their parent, and these live in one StackPanel - so without a distinct name per
             // display, choosing Pinned on one monitor would silently clear it on every other.
@@ -143,26 +209,23 @@ public partial class SettingsPage : UserControl
                 IsChecked = row.Mode == DisplayMode.Shuffle
             };
 
+            // NEVER DISABLED. It used to be greyed out whenever this display had no active player,
+            // which made a config edit depend on transient engine state and locked the user out of
+            // pinning for the whole of any restart. Pinning now reads config and the library only.
             var pinned = new RadioButton
             {
                 Content = "Pinned",
                 GroupName = group,
-                IsChecked = row.Mode == DisplayMode.Pinned,
-                IsEnabled = row.CanPin,
-                ToolTip = row.CanPin
-                    ? null
-                    : "Nothing is playing on this display, so there is no clip to pin to."
+                IsChecked = row.Mode == DisplayMode.Pinned
             };
 
-            // Captured per iteration so each handler edits its own row.
-            var captured = row;
             shuffle.Checked += (_, _) => ChooseMode(captured, DisplayMode.Shuffle);
             pinned.Checked += (_, _) => ChooseMode(captured, DisplayMode.Pinned);
 
             var modes = new StackPanel { Orientation = Orientation.Horizontal };
             modes.Children.Add(shuffle);
             modes.Children.Add(pinned);
-            Grid.SetColumn(modes, 2);
+            Grid.SetColumn(modes, 3);
             grid.Children.Add(modes);
 
             DisplayHost.Children.Add(grid);

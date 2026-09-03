@@ -1,5 +1,6 @@
 using System.IO;
 using Whallee.App.Services;
+using Whallee.Core;
 using Whallee.Core.Configuration;
 using Whallee.Core.Displays;
 
@@ -10,14 +11,32 @@ public sealed class DisplayRow
 {
     public required string DeviceName { get; init; }
 
-    /// <summary>The clip playing right now, or null when this display has no active player.</summary>
+    /// <summary>
+    /// The clip playing right now, or null when this display has no active player. INFORMATION
+    /// ONLY - nothing the user can do on this page depends on it. See <see cref="SelectedClip"/>.
+    /// </summary>
     public string? NowPlaying { get; init; }
 
     /// <summary>What the user has chosen. Starts at the saved value and is edited in place.</summary>
     public DisplayMode Mode { get; set; }
 
-    /// <summary>False when nothing is playing, so there is no clip to pin to.</summary>
-    public bool CanPin => NowPlaying is not null;
+    /// <summary>
+    /// The clip this display would be pinned to, chosen from the library. Null only when the
+    /// library is empty.
+    /// </summary>
+    /// <remarks>
+    /// REPLACED A CanPin FLAG DERIVED FROM NowPlaying, WHICH WAS A BUG. Deciding whether a display
+    /// could be pinned from WallpaperEngine.ActivePlayers coupled a config edit to transient
+    /// playback state: ActivePlayers is EMPTY for the whole of a restart (StopAll clears it before
+    /// StartOnce refills it), and a restart pumps messages, so the UI is live and interactive
+    /// during that window. A fullscreen app changing display mode fires WM_DISPLAYCHANGE, the
+    /// shell watcher restarts the engine, and a row built in that window came up "(not playing)"
+    /// with Pinned disabled until the user navigated away and back. Owner-reported 2026-09-03.
+    ///
+    /// Pinning is a config edit and now reads only from config and the library, so no engine state
+    /// can disable it.
+    /// </remarks>
+    public string? SelectedClip { get; set; }
 }
 
 /// <summary>
@@ -29,6 +48,12 @@ public sealed class SettingsViewModel
     private readonly UiReporter _reporter;
 
     public List<DisplayRow> Displays { get; } = new();
+
+    /// <summary>
+    /// Bare file names of every clip in the library, for the per-display pin dropdown. Empty until
+    /// <see cref="LoadClipsAsync"/> has run, which is why rows seed their pin from config instead.
+    /// </summary>
+    public List<string> LibraryClips { get; } = new();
 
     /// <summary>The pending scaling choice. Starts at the saved value.</summary>
     public ScalingMode Scaling { get; set; }
@@ -130,13 +155,58 @@ public sealed class SettingsViewModel
                 a => string.Equals(a.DeviceName, display.DeviceName,
                                    StringComparison.OrdinalIgnoreCase));
 
+            var nowPlaying = active is null ? null : Path.GetFileName(active.ClipPath);
+
             Displays.Add(new DisplayRow
             {
                 DeviceName = display.DeviceName,
-                NowPlaying = active is null ? null : Path.GetFileName(active.ClipPath),
-                Mode = saved?.Mode ?? DisplayMode.Shuffle
+                NowPlaying = nowPlaying,
+                Mode = saved?.Mode ?? DisplayMode.Shuffle,
+
+                // Seeded from config first, so a row is usable the instant it appears - before
+                // LoadClipsAsync has finished listing the library, and regardless of whether the
+                // engine happens to be mid-restart with no active players.
+                SelectedClip = SettingsDraft.InitialPin(saved?.PinnedPath, nowPlaying)
             });
         }
+    }
+
+    /// <summary>
+    /// Fills <see cref="LibraryClips"/>, and gives any row with no pin yet something to point at.
+    /// </summary>
+    /// <remarks>
+    /// SEPARATE FROM Refresh, AND ASYNC, because listing the library is real disk I/O on a
+    /// OneDrive-backed folder - exactly the call LibraryViewModel.LoadAsync pushes off the UI
+    /// thread for the same reason. Refresh stays synchronous so rows appear at once; the dropdowns
+    /// fill in a moment later, the same way the details dialog fills in its probed fields.
+    ///
+    /// Rows already carry a SelectedClip from config by the time this runs, so a slow listing
+    /// delays the CHOICES, never the ability to pin.
+    /// </remarks>
+    public async Task LoadClipsAsync(CancellationToken ct = default)
+    {
+        var folder = _engine.Config.LibraryFolder;
+
+        IReadOnlyList<string> files;
+        try
+        {
+            files = await Task.Run(() => ClipResolver.ListLibraryFiles(folder), ct)
+                              .ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not list the library folder: {ex.Message}");
+            return;
+        }
+
+        LibraryClips.Clear();
+        foreach (var file in files) LibraryClips.Add(Path.GetFileName(file));
+
+        // A display that has never been pinned and is not playing anything would otherwise have
+        // nothing selected, and choosing Pinned would then silently do nothing at Apply.
+        foreach (var row in Displays)
+            row.SelectedClip ??= LibraryClips.FirstOrDefault();
     }
 
     // ---- applying -------------------------------------------------------------
@@ -166,34 +236,24 @@ public sealed class SettingsViewModel
     }
 
     /// <summary>
-    /// The pending choices, resolved against what is playing RIGHT NOW.
+    /// The pending choices, read from the rows the user has been editing.
     /// </summary>
     /// <remarks>
-    /// BUILT ON EVERY CALL, NEVER CACHED. "Pinned" in the UI means "pin whatever this display is
-    /// playing", and the engine can restart underneath this page - a display change triggers one -
-    /// so a dictionary built when the page loaded would pin the clip from before that restart.
-    /// Both IsDirty and Apply go through here for that reason.
+    /// READS ONLY THE ROWS - NOT WallpaperEngine.ActivePlayers. It used to resolve a Pinned row
+    /// against whatever that display happened to be playing at this instant, which made a config
+    /// edit depend on transient engine state and produced the 2026-09-03 defect described on
+    /// <see cref="DisplayRow.SelectedClip"/>. The row already knows which clip it means.
+    ///
+    /// A Pinned row whose SelectedClip is null - only possible with an empty library - yields a
+    /// null file name, which SettingsDraft.Apply ignores rather than writing a pin to nowhere.
     /// </remarks>
     private Dictionary<string, DisplayChoice> BuildChoices()
     {
-        var playing = _engine.ActivePlayers;
         var choices = new Dictionary<string, DisplayChoice>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var row in Displays)
-        {
-            string? clip = null;
-
-            if (row.Mode == DisplayMode.Pinned)
-            {
-                var active = playing.FirstOrDefault(
-                    p => string.Equals(p.Display.DeviceName, row.DeviceName,
-                                       StringComparison.OrdinalIgnoreCase));
-
-                clip = active is null ? null : Path.GetFileName(active.ClipPath);
-            }
-
-            choices[row.DeviceName] = new DisplayChoice(row.Mode, clip);
-        }
+            choices[row.DeviceName] = new DisplayChoice(
+                row.Mode, row.Mode == DisplayMode.Pinned ? row.SelectedClip : null);
 
         return choices;
     }

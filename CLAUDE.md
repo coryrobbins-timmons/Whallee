@@ -154,6 +154,14 @@ Both must be clean. Safe verbs that print and exit — use these freely:
     That difference is the entire mechanism, not an optimisation.
 - Four clips in the library. **Four clips across three displays means two displays showing the same
   clip is expected, not a bug.**
+- **mpv does NOT lock a clip it is playing — deleting one while it is on screen succeeds.**
+  Owner-confirmed 2026-09-03: deleting the clip a display was actively playing worked, and that
+  display fell back to a random pick with no error. This had never been measured; only the
+  *overwrite* case had, and predicting a sharing violation from it had already been wrong once.
+  Consequences worth keeping: `ClipResolver.Resolve`'s "pinned clip is gone, fall through to a
+  random pick" branch is a **live, exercised path**, not a defensive one; and
+  `LibraryViewModel.DeleteClipAsync`'s optimistic order (recycle first, clear config after) is
+  right, with its `IOException` escalation being genuinely rare rather than the expected route.
 - `Documents` is OneDrive-redirected, so `SpecialFolder.MyDocuments` is *not* local `Documents`, and
   library files may be cloud-only placeholders.
 - **SentinelOne is the on-access scanner here, not Defender** (Defender real-time protection is

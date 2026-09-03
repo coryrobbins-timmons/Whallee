@@ -18,6 +18,36 @@ public readonly record struct DisplayChoice(DisplayMode Mode, string? PinnedFile
 /// </remarks>
 public static class SettingsDraft
 {
+    /// <summary>
+    /// Which clip a display's pin dropdown should start on: its saved pin, else whatever it happens
+    /// to be playing, else nothing.
+    /// </summary>
+    /// <remarks>
+    /// THE SAVED PIN WINS OVER WHAT IS PLAYING, and the order is the point. A pinned display that
+    /// has fallen back to a random clip - because its pinned file was deleted or has not synced
+    /// yet, which ClipResolver.Resolve does deliberately - is still *configured* for the pin the
+    /// user chose. Showing the fallback would quietly offer to overwrite their choice with an
+    /// accident.
+    ///
+    /// EXISTS BECAUSE COUPLING PINNING TO PLAYBACK WAS A BUG. The settings page used to decide
+    /// whether a display could be pinned at all from WallpaperEngine.ActivePlayers, which is EMPTY
+    /// for the whole of a restart - StopAll clears it before StartOnce refills it - and a restart
+    /// pumps messages, so the UI is live and interactive during that window. A fullscreen app
+    /// changing display mode fires WM_DISPLAYCHANGE, the shell watcher restarts the engine, and any
+    /// row built in that window came up "(not playing)" with its Pinned option disabled until the
+    /// user navigated away and back. Owner-reported 2026-09-03.
+    ///
+    /// Both inputs may be null and null is a valid answer: an empty library, or a display that has
+    /// never been pinned and is not playing. A Pinned choice carrying null is ignored by Apply
+    /// rather than written, so nothing downstream needs to guard against it.
+    /// </remarks>
+    public static string? InitialPin(string? savedPinnedPath, string? nowPlaying)
+    {
+        if (!string.IsNullOrWhiteSpace(savedPinnedPath)) return Path.GetFileName(savedPinnedPath);
+
+        return string.IsNullOrWhiteSpace(nowPlaying) ? null : Path.GetFileName(nowPlaying);
+    }
+
     /// <summary>True when applying these values would change anything in config.</summary>
     public static bool HasChanges(
         WhalleeConfig config, ScalingMode scaling,
