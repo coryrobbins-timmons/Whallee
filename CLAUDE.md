@@ -173,10 +173,14 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   autostart uses the Startup folder.
 - **The installed copy is not the one you build.** Set up 2026-09-02. `tools\publish-app.ps1`
   publishes the self-contained Release build to `%LOCALAPPDATA%\Whallee\app\` (~160 MB, 249 files),
-  and `-Shortcut` writes the logon shortcut to
-  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Whallee.lnk`. **Delete that .lnk to stop
-  Whallee starting at logon — nothing else needs undoing.** Three reasons the installed copy is not
-  simply `bin\Release\`:
+  `-Shortcut` writes the logon shortcut to
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Whallee.lnk`, and `-DesktopShortcut`
+  writes one to the Desktop. **Delete a .lnk to undo it — nothing else needs undoing.** Neither
+  shortcut sets `IconLocation`, deliberately: a shortcut naming no icon shows its target exe's
+  embedded icon, so `Whallee.ico` is picked up with nothing to keep in sync. Note the Desktop here
+  is **OneDrive-redirected**, so the script resolves it with `GetFolderPath('Desktop')` rather than
+  `$env:USERPROFILE\Desktop`, which does not exist. Three reasons the installed copy is not simply
+  `bin\Release\`:
   - `bin\` is git-ignored, so `git clean -fdx` would delete it and autostart would fail at the next
     logon with nothing pointing at the cause.
   - The repo is under OneDrive-redirected Documents, which on this machine has a history of locking

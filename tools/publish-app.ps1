@@ -25,10 +25,12 @@
 .EXAMPLE
     .\tools\publish-app.ps1
     .\tools\publish-app.ps1 -Shortcut
+    .\tools\publish-app.ps1 -Shortcut -DesktopShortcut
 #>
 [CmdletBinding()]
 param(
-    [switch] $Shortcut
+    [switch] $Shortcut,
+    [switch] $DesktopShortcut
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +39,10 @@ $repoRoot   = Split-Path -Parent $PSScriptRoot
 $project    = Join-Path $repoRoot 'src\Whallee.App\Whallee.App.csproj'
 $installDir = Join-Path $env:LOCALAPPDATA 'Whallee\app'
 $startupLnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\Whallee.lnk'
+
+# GetFolderPath, not "$env:USERPROFILE\Desktop". This machine's Desktop is OneDrive-redirected, so
+# the literal path does not exist and a shortcut written there would land somewhere nobody looks.
+$desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Whallee.lnk'
 
 # REFUSE rather than kill. Whallee owns windows re-parented into Explorer's desktop; terminating it
 # from outside is exactly how you end up with orphaned host windows on the wallpaper. Exiting via
@@ -57,17 +63,29 @@ if (-not (Test-Path $exe)) { throw "Publish reported success but $exe is missing
 $sizeMb = [math]::Round(((Get-ChildItem $installDir -Recurse -File | Measure-Object Length -Sum).Sum / 1MB), 1)
 Write-Host "Published $exe ($sizeMb MB)."
 
-if ($Shortcut) {
-    # No IconLocation is set on purpose: a shortcut with no explicit icon shows the target exe's
-    # own embedded icon, so once <ApplicationIcon> is added to Whallee.App.csproj the shortcut
-    # picks it up on the next publish with no change here.
+# NO IconLocation IS EVER SET, on purpose. A shortcut that names no icon shows its target exe's own
+# embedded icon, so the .ico built into Whallee.exe is picked up automatically and there is nothing
+# here to keep in sync when the icon changes.
+function Write-WhalleeShortcut {
+    param([string] $Path)
+
     $wsh = New-Object -ComObject WScript.Shell
-    $lnk = $wsh.CreateShortcut($startupLnk)
+    $lnk = $wsh.CreateShortcut($Path)
     $lnk.TargetPath       = $exe
     $lnk.WorkingDirectory = $installDir
     $lnk.Description      = 'Whallee live wallpaper'
     $lnk.Save()
+}
+
+if ($Shortcut) {
+    Write-WhalleeShortcut -Path $startupLnk
 
     Write-Host "Logon shortcut written to $startupLnk"
     Write-Host "To stop Whallee starting at logon, delete that file. Nothing else needs undoing."
+}
+
+if ($DesktopShortcut) {
+    Write-WhalleeShortcut -Path $desktopLnk
+
+    Write-Host "Desktop shortcut written to $desktopLnk"
 }
