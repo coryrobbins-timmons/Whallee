@@ -9,7 +9,8 @@ internal sealed record ClipMenuActions(
     Action<ClipTile, string?> Apply,
     Action<ClipTile> PlayInDefaultPlayer,
     Action<ClipTile> OpenFileLocation,
-    Action<ClipTile> ShowDetails);
+    Action<ClipTile> ShowDetails,
+    Action<ClipTile> Delete);
 
 /// <summary>
 /// Builds the right-click menu for one library tile, fresh on every open.
@@ -40,6 +41,11 @@ internal static class ClipContextMenu
         Add(menu, "Play in default player", () => actions.PlayInDefaultPlayer(tile));
         Add(menu, "Open file location", () => actions.OpenFileLocation(tile));
         Add(menu, "Details…", () => actions.ShowDetails(tile));
+
+        // LAST, AND BEHIND A SEPARATOR. The only item here that can lose data, kept four rows away
+        // from anything harmless.
+        menu.Items.Add(new Separator());
+        Add(menu, "Delete", () => actions.Delete(tile));
     }
 
     private static void Add(ContextMenu menu, string header, Action onClick)

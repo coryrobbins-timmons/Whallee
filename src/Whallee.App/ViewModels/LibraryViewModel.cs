@@ -5,6 +5,12 @@ using Whallee.Core;
 using Whallee.Core.Configuration;
 using Whallee.Core.Displays;
 using Whallee.Core.Media;
+// ALIASED, not a plain "using Microsoft.VisualBasic.FileIO". That namespace also contains a
+// SearchOption type, which would become CS0104-ambiguous against System.IO.SearchOption for anyone
+// who later reaches for it in this file. Three aliases plant no such landmine.
+using VbFileSystem = Microsoft.VisualBasic.FileIO.FileSystem;
+using VbRecycle = Microsoft.VisualBasic.FileIO.RecycleOption;
+using VbUiOption = Microsoft.VisualBasic.FileIO.UIOption;
 
 namespace Whallee.App.ViewModels;
 
@@ -39,6 +45,9 @@ public sealed class LibraryViewModel
     /// skip probing rather than launching nothing.
     /// </summary>
     public string ConfiguredFfmpegPath => _engine.Config.FfmpegPath;
+
+    /// <summary>The live config, for callers that need to ask what a clip is pinned to.</summary>
+    public WhalleeConfig Config => _engine.Config;
 
     public LibraryViewModel(EngineHost engine, UiReporter reporter)
     {
@@ -331,5 +340,119 @@ public sealed class LibraryViewModel
                 _reporter.Report($"thumbnail failed for {tile.FileName}: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>
+    /// Removes a clip from the library, sending it to the Recycle Bin. Returns true when the file
+    /// is gone - including when it turned out to be gone already.
+    /// </summary>
+    /// <remarks>
+    /// OPTIMISTIC, ESCALATING ONLY ON FAILURE, AND THE ORDER IS LOAD-BEARING. The obvious design -
+    /// unpin first so mpv lets go, then delete - was designed, approved, and then DISCARDED after
+    /// reading ClipResolver.Resolve:
+    ///
+    ///   1. A SHUFFLE DISPLAY HOLDS A CLIP TOO. Resolve picks at random from the library and mpv
+    ///      loops it, so unpinning cannot guarantee the handle is released - and a restart
+    ///      RE-RANDOMISES, so it can land back on the very clip being deleted.
+    ///   2. A DANGLING PinnedPath IS ALREADY HARMLESS. Resolve falls through to a random pick when
+    ///      the pinned clip is gone, with a comment in that file saying exactly that.
+    ///
+    /// So unpinning first bought a ~3 s restart and a "lost the pin for nothing" failure mode, in
+    /// exchange for a handle release it could not deliver, to prevent something already benign.
+    ///
+    /// DELETE-WHILE-PLAYING IS UNMEASURED on this machine. CLAUDE.md records only that mpv does not
+    /// block an OVERWRITE, and explicitly flags predicting a sharing violation as having been wrong
+    /// once already. The retry below is therefore the ESCALATION path, not the expected one - and
+    /// it can still fail, which is why its message says so plainly instead of reassuring.
+    /// </remarks>
+    public async Task<bool> DeleteClipAsync(string clipPath, CancellationToken ct = default)
+    {
+        var fileName = Path.GetFileName(clipPath);
+
+        // CAPTURED BEFORE THE FILE GOES AWAY. The thumbnail cache key hashes path AND last-write
+        // time, so once the clip is recycled there is no way to work out which cached jpg was its.
+        DateTime? stamp = null;
+        try { stamp = File.GetLastWriteTimeUtc(clipPath); }
+        catch (Exception) { /* no stamp just means the cached thumbnail is left alone */ }
+
+        try
+        {
+            await RecycleAsync(clipPath, ct).ConfigureAwait(true);
+        }
+        // BEFORE the IOException catch, and that ordering is required: FileNotFoundException
+        // DERIVES from IOException, so the general catch would swallow it first.
+        catch (FileNotFoundException)
+        {
+            _reporter.Report($"{fileName} was already gone");
+            ClipRemoval.ClearAssignments(_engine.Config, fileName);
+            _engine.SaveConfig();
+            return true;
+        }
+        catch (IOException first)
+        {
+            // Something is holding the file. Move the pinned displays off it and try once more.
+            var cleared = ClipRemoval.ClearAssignments(_engine.Config, fileName);
+            if (cleared == 0)
+            {
+                // Nothing referenced it, so there is nothing to escalate to - some other program
+                // holds it. Retrying would just fail again.
+                _reporter.Report($"could not delete {fileName}: {first.Message}");
+                return false;
+            }
+
+            _reporter.Report($"{fileName} is in use — unpinning {cleared} display(s) and retrying");
+            _engine.ApplyConfigChange();
+
+            try
+            {
+                await RecycleAsync(clipPath, ct).ConfigureAwait(true);
+            }
+            catch (Exception retry)
+            {
+                // HONEST, not reassuring. A shuffling display may have re-picked the clip after the
+                // restart, which is exactly the case this retry cannot fix.
+                _reporter.Report(
+                    $"could not delete {fileName}: {retry.Message} — it is still in the library. " +
+                    "Something is still playing or holding it.");
+                return false;
+            }
+
+            DeleteCachedThumbnail(clipPath, stamp);
+            _reporter.Report($"deleted {fileName} — moved to the Recycle Bin");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not delete {fileName}: {ex.Message}");
+            return false;
+        }
+
+        // The file is gone on the first attempt. Clear config, and re-attach ONLY if anything
+        // actually referenced it - deleting a clip nothing was using costs no restart at all.
+        var references = ClipRemoval.ClearAssignments(_engine.Config, fileName);
+        if (references > 0) _engine.ApplyConfigChange();
+        else _engine.SaveConfig();
+
+        DeleteCachedThumbnail(clipPath, stamp);
+
+        _reporter.Report($"deleted {fileName} — moved to the Recycle Bin");
+        return true;
+    }
+
+    /// <summary>
+    /// Task.Run because a shell operation on a OneDrive-backed path is exactly the call that
+    /// stalls, and this thread owns windows parented into Explorer's desktop.
+    /// </summary>
+    private static Task RecycleAsync(string clipPath, CancellationToken ct) =>
+        Task.Run(() => VbFileSystem.DeleteFile(
+            clipPath, VbUiOption.OnlyErrorDialogs, VbRecycle.SendToRecycleBin), ct);
+
+    /// <summary>Regenerable cache, not user data - so permanent, and a failure is not worth a word.</summary>
+    private void DeleteCachedThumbnail(string clipPath, DateTime? stamp)
+    {
+        if (stamp is null) return;
+
+        try { File.Delete(_thumbnails.CachePathFor(clipPath, stamp.Value)); }
+        catch (Exception) { }
     }
 }

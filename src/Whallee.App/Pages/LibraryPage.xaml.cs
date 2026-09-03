@@ -7,6 +7,7 @@ using System.Windows.Media;
 using Whallee.App.Dialogs;
 using Whallee.App.Services;
 using Whallee.App.ViewModels;
+using Whallee.Core.Configuration;
 using Whallee.Core.Media;
 
 namespace Whallee.App.Pages;
@@ -37,7 +38,8 @@ public partial class LibraryPage : UserControl
             Apply: ApplyFromMenu,
             PlayInDefaultPlayer: PlayInDefaultPlayer,
             OpenFileLocation: OpenFileLocation,
-            ShowDetails: ShowDetails);
+            ShowDetails: ShowDetails,
+            Delete: DeleteClip);
 
         Loaded += OnLoaded;
     }
@@ -359,6 +361,41 @@ public partial class LibraryPage : UserControl
         {
             // A click handler is a Dispatcher callback: an escaping exception terminates the app.
             _reporter.Report($"could not apply that clip: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// async void, wrapped end to end. The only destructive action in the app.
+    /// </summary>
+    /// <remarks>
+    /// DEFAULTS TO No. MessageBoxResult.No as the fourth argument is what makes Enter cancel rather
+    /// than confirm; without it a stray keypress deletes a clip.
+    /// </remarks>
+    private async void DeleteClip(ClipTile tile)
+    {
+        try
+        {
+            var pinned = ClipRemoval.PinnedDisplayNames(_model.Config, tile.FileName);
+
+            var question = pinned.Count == 0
+                ? $"Delete {tile.FileName} from the library?"
+                : $"Delete {tile.FileName} from the library?\n\nIt is pinned to " +
+                  $"{string.Join(", ", pinned)}, which will go back to shuffling.";
+
+            var answer = MessageBox.Show(
+                question + "\n\nIt will be moved to the Recycle Bin.",
+                "Whallee", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+
+            if (answer != MessageBoxResult.Yes) return;
+
+            // Only refresh when something actually changed: a refused delete leaves a grid that is
+            // still correct, and LoadAsync re-runs the whole thumbnail pass.
+            if (await _model.DeleteClipAsync(tile.Path))
+                await _model.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not delete {tile.FileName}: {ex.Message}");
         }
     }
 }
