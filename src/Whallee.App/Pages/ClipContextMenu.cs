@@ -8,6 +8,7 @@ namespace Whallee.App.Pages;
 internal sealed record ClipMenuActions(
     Action<ClipTile, string?> Apply,
     Action<ClipTile> PlayInDefaultPlayer,
+    Action<ClipTile> Rename,
     Action<ClipTile> OpenFileLocation,
     Action<ClipTile> ShowDetails,
     Action<ClipTile> Delete);
@@ -39,11 +40,17 @@ internal static class ClipContextMenu
 
         menu.Items.Add(BuildApplyTo(tile, actions));
         Add(menu, "Play in default player", () => actions.PlayInDefaultPlayer(tile));
+
+        // OWNER'S PLACEMENT, chosen 2026-09-03: directly below "Play in default player", near the
+        // top rather than beside Delete. It stays OUTSIDE the separator - renaming changes
+        // something, but nothing is lost by it. Do not "tidy" it down next to Delete.
+        Add(menu, "Rename…", () => actions.Rename(tile));
+
         Add(menu, "Open file location", () => actions.OpenFileLocation(tile));
         Add(menu, "Details…", () => actions.ShowDetails(tile));
 
-        // LAST, AND BEHIND A SEPARATOR. The only item here that can lose data, kept four rows away
-        // from anything harmless.
+        // LAST, AND BEHIND A SEPARATOR. The only item here that can lose data, kept away from
+        // anything harmless.
         menu.Items.Add(new Separator());
         Add(menu, "Delete", () => actions.Delete(tile));
     }

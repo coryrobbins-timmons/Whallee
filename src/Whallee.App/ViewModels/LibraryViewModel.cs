@@ -440,6 +440,107 @@ public sealed class LibraryViewModel
     }
 
     /// <summary>
+    /// Renames a clip in the library, keeping its extension, and repoints any pin that named it.
+    /// Returns true when the file was renamed.
+    /// </summary>
+    /// <remarks>
+    /// NO ENGINE RESTART - SaveConfig, not ApplyConfigChange. mpv holds an open handle and DOES NOT
+    /// LOCK A CLIP IT IS PLAYING, measured 2026-09-03 when deleting a playing clip succeeded and the
+    /// display fell back to a random pick. So a display showing the renamed clip keeps playing it
+    /// uninterrupted, and config is already repointed for the next restart. Restarting would cost a
+    /// ~3 s flicker on three displays to change nothing visible.
+    ///
+    /// CONFIG IS TOUCHED ONLY AFTER THE FILE HAS ACTUALLY MOVED, so a failed rename cannot leave a
+    /// pin naming a file that does not exist.
+    ///
+    /// NO RETRY AROUND File.Move. CLAUDE.md records that SentinelOne can refuse a File.Move ONTO an
+    /// existing file with ERROR_ACCESS_DENIED, and asks new replace-in-place code to retry - but
+    /// this is not replace-in-place: a clash is refused below, so the target never exists. Revisit
+    /// only if a rename is actually seen to fail that way.
+    /// </remarks>
+    public async Task<bool> RenameClipAsync(string clipPath, string newBaseName,
+                                            CancellationToken ct = default)
+    {
+        // RE-VALIDATED even though the dialog gates its button on the same call. This is a public
+        // method and must not depend on its only current caller having checked; the alternative is
+        // handing File.Move a name Windows will mangle or reject.
+        var invalid = ClipRename.Validate(newBaseName);
+        if (invalid is not null)
+        {
+            _reporter.Report($"could not rename: {invalid}");
+            return false;
+        }
+
+        var folder = Path.GetDirectoryName(clipPath) ?? _engine.Config.LibraryFolder;
+        var oldName = Path.GetFileName(clipPath);
+        var newName = newBaseName + Path.GetExtension(clipPath);
+        var newPath = Path.Combine(folder, newName);
+
+        // THE CLASH CHECK IGNORES THE SOURCE ITSELF. A case-only rename (Forest.mp4 -> forest.mp4)
+        // targets the same file, so a bare File.Exists would refuse a perfectly legal rename.
+        var sameFile = string.Equals(Path.GetFullPath(clipPath), Path.GetFullPath(newPath),
+                                     StringComparison.OrdinalIgnoreCase);
+
+        if (!sameFile && File.Exists(newPath))
+        {
+            _reporter.Report($"could not rename: {newName} is already in the library");
+            return false;
+        }
+
+        // CAPTURED BEFORE THE MOVE: the thumbnail cache key hashes path AND last-write time, so
+        // once the file has moved there is no way to derive the old key.
+        DateTime? stamp = null;
+        try { stamp = File.GetLastWriteTimeUtc(clipPath); }
+        catch (Exception) { /* no stamp just means the thumbnail regenerates instead */ }
+
+        try
+        {
+            await Task.Run(() => File.Move(clipPath, newPath), ct).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not rename {oldName}: {ex.Message}");
+            return false;
+        }
+
+        MoveCachedThumbnail(clipPath, newPath, stamp);
+
+        var repointed = ClipRename.Repoint(_engine.Config, oldName, newName);
+        if (repointed > 0) _engine.SaveConfig();
+
+        _reporter.Report(repointed > 0
+            ? $"renamed {oldName} to {newName} — {repointed} pin(s) updated"
+            : $"renamed {oldName} to {newName}");
+
+        return true;
+    }
+
+    /// <summary>Carries the cached thumbnail across to the renamed clip's cache key.</summary>
+    /// <remarks>
+    /// A rename PRESERVES the last-write time, so only the path half of the key changes and the
+    /// cached image is still correct for the new name. Without this the tile blanks and LoadAsync
+    /// re-runs ffmpeg (~1.2 s) to produce a byte-identical picture.
+    ///
+    /// BEST EFFORT, AND IT MUST NEVER FAIL THE RENAME. The file has already moved by the time this
+    /// runs, so reporting a rename as failed because a cache file could not be moved would be a
+    /// lie. The swallow also covers the one place the scanner hazard DOES apply here: this move
+    /// overwrites, so it is replace-in-place, and a refusal simply costs a regenerated thumbnail.
+    /// </remarks>
+    private void MoveCachedThumbnail(string oldClipPath, string newClipPath, DateTime? stamp)
+    {
+        if (stamp is null) return;
+
+        try
+        {
+            var from = _thumbnails.CachePathFor(oldClipPath, stamp.Value);
+            var to = _thumbnails.CachePathFor(newClipPath, stamp.Value);
+
+            if (File.Exists(from)) File.Move(from, to, overwrite: true);
+        }
+        catch (Exception) { }
+    }
+
+    /// <summary>
     /// Task.Run because a shell operation on a OneDrive-backed path is exactly the call that
     /// stalls, and this thread owns windows parented into Explorer's desktop.
     /// </summary>

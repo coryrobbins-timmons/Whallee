@@ -37,6 +37,7 @@ public partial class LibraryPage : UserControl
         _menuActions = new ClipMenuActions(
             Apply: ApplyFromMenu,
             PlayInDefaultPlayer: PlayInDefaultPlayer,
+            Rename: RenameClip,
             OpenFileLocation: OpenFileLocation,
             ShowDetails: ShowDetails,
             Delete: DeleteClip);
@@ -361,6 +362,28 @@ public partial class LibraryPage : UserControl
         {
             // A click handler is a Dispatcher callback: an escaping exception terminates the app.
             _reporter.Report($"could not apply that clip: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// async void, wrapped end to end. A menu Click is a Dispatcher callback, and an exception
+    /// escaping an async void handler terminates the process.
+    /// </summary>
+    private async void RenameClip(ClipTile tile)
+    {
+        try
+        {
+            var dialog = new RenameClipDialog(tile.FileName) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() != true || dialog.NewBaseName is null) return;
+
+            // Only refresh when something actually changed: a refused rename leaves a grid that is
+            // still correct, and LoadAsync re-runs the whole thumbnail pass.
+            if (await _model.RenameClipAsync(tile.Path, dialog.NewBaseName))
+                await _model.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not rename {tile.FileName}: {ex.Message}");
         }
     }
 
