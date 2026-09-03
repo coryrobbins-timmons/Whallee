@@ -3,3 +3,7 @@ obj/
 .vs/
 *.user
 Library/
+
+# Raw icon/wallpaper source images dropped in by hand. The one crop that actually matters is
+# committed as src/Whallee.App/Whallee-icon-source.png; these are the originals it came from.
+Desktop Images/
