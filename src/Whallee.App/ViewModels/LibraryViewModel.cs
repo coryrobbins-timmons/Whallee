@@ -500,6 +500,11 @@ public sealed class LibraryViewModel
             return false;
         }
 
+        // NORMALISED HERE TOO, not only in the dialog. Validate judges the NORMALISED form, so
+        // accepting the raw string would let a trailing space reach File.Move - where Windows strips
+        // it anyway, leaving the file, config and the grid disagreeing about the clip's name.
+        newBaseName = ClipRename.Normalise(newBaseName);
+
         var folder = Path.GetDirectoryName(clipPath) ?? _engine.Config.LibraryFolder;
         var oldName = Path.GetFileName(clipPath);
         var newName = newBaseName + Path.GetExtension(clipPath);

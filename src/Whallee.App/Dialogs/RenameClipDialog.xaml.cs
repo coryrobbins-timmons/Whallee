@@ -55,11 +55,13 @@ public partial class RenameClipDialog : Window
     /// </remarks>
     private void UpdateState()
     {
-        var name = NameBox.Text;
-        var error = ClipRename.Validate(name);
+        var error = ClipRename.Validate(NameBox.Text);
 
+        // COMPARED NORMALISED, so typing a trailing space onto the existing name is correctly
+        // "nothing to do" rather than an apparent edit that would rename the file to itself.
         var unchanged = error is null &&
-                        string.Equals(name, _originalBaseName, StringComparison.Ordinal);
+                        string.Equals(ClipRename.Normalise(NameBox.Text), _originalBaseName,
+                                      StringComparison.Ordinal);
 
         OkButton.IsEnabled = error is null && !unchanged;
 
@@ -67,9 +69,14 @@ public partial class RenameClipDialog : Window
         ErrorText.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    /// <remarks>
+    /// NORMALISED HERE, AT COMMIT - never in <see cref="NameBox_TextChanged"/>. Trimming as the user
+    /// types would delete the space the instant it is typed, making "forest at dusk" impossible to
+    /// enter: the space would vanish before the next word could be started.
+    /// </remarks>
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
-        NewBaseName = NameBox.Text;
+        NewBaseName = ClipRename.Normalise(NameBox.Text);
         DialogResult = true;
     }
 }

@@ -37,8 +37,12 @@
                                 <Image Height="135" Stretch="UniformToFill"
                                        Source="{Binding ThumbnailPath,
                                                         Converter={StaticResource PathToImage}}" />
-                                <TextBlock Text="{Binding FileName}" Margin="4"
-                                           TextTrimming="CharacterEllipsis" />
+                                <!-- DisplayName, not FileName: the extension is noise repeated on
+                                     every tile. The tooltip still carries the real file name,
+                                     which matters because long names are ellipsised here. -->
+                                <TextBlock Text="{Binding DisplayName}" Margin="4"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTip="{Binding FileName}" />
                             </StackPanel>
                         </Button>
                     </DataTemplate>

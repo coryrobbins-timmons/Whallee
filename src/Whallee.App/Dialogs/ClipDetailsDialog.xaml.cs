@@ -33,6 +33,12 @@ public partial class ClipDetailsDialog : Window
         NameText.Text = Path.GetFileName(clipPath);
         PathText.Text = clipPath;
 
+        // WHERE THE EXTENSION LIVES NOW. The library tiles stopped showing it on 2026-09-03 - it was
+        // noise repeated once per clip - so this row is what answers "what kind of file is this?".
+        // Uppercased and without the dot, because here it reads as a format rather than a suffix.
+        var extension = Path.GetExtension(clipPath).TrimStart('.');
+        FormatText.Text = extension.Length == 0 ? Unknown : extension.ToUpperInvariant();
+
         // ACCEPTED, and small: FileInfo.Length reads the directory entry, which is present even for
         // a OneDrive placeholder, so it does not trigger hydration. The heavy call - ffprobe, which
         // reads actual bytes - is the one pushed off this thread below.

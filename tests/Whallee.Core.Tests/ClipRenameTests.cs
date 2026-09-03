@@ -36,13 +36,62 @@ public class ClipRenameTests
     [Fact]
     public void AQuestionMarkIsRejected() => Assert.NotNull(ClipRename.Validate("what?"));
 
-    // Windows silently strips a trailing dot or space, so the file would end up named differently
-    // from what was typed - a mismatch the user cannot see.
+    // TRIMMED, NOT REJECTED, changed 2026-09-03. These two used to be errors. Windows strips both
+    // when creating the file, so the only real choice was doing it ourselves or scolding the user
+    // for a slip with one obvious fix.
     [Fact]
-    public void ATrailingDotIsRejected() => Assert.NotNull(ClipRename.Validate("forest."));
+    public void ATrailingSpaceIsAcceptedAndTrimmed()
+    {
+        Assert.Null(ClipRename.Validate("forest "));
+        Assert.Equal("forest", ClipRename.Normalise("forest "));
+    }
 
     [Fact]
-    public void ATrailingSpaceIsRejected() => Assert.NotNull(ClipRename.Validate("forest "));
+    public void ATrailingDotIsAcceptedAndTrimmed()
+    {
+        Assert.Null(ClipRename.Validate("forest."));
+        Assert.Equal("forest", ClipRename.Normalise("forest."));
+    }
+
+    [Fact]
+    public void LeadingWhitespaceIsTrimmedToo() =>
+        Assert.Equal("forest", ClipRename.Normalise("   forest"));
+
+    // Trim() runs before TrimEnd('.', ' '), so the dot is exposed and removed in one pass.
+    [Fact]
+    public void ATrailingDotFollowedByASpaceIsFullyTrimmed() =>
+        Assert.Equal("forest", ClipRename.Normalise("forest. "));
+
+    [Fact]
+    public void InteriorSpacesAreKept() =>
+        Assert.Equal("forest at dusk", ClipRename.Normalise("  forest at dusk  "));
+
+    // A name that is nothing but trimmable characters leaves nothing to name the file.
+    [Fact]
+    public void ANameOfOnlyDotsAndSpacesIsRejected() => Assert.NotNull(ClipRename.Validate(" . . "));
+
+    [Fact]
+    public void NormaliseTreatsNullAsEmpty() => Assert.Equal("", ClipRename.Normalise(null));
+
+    // The message must point at the character the user actually typed, not just recite the rule.
+    [Fact]
+    public void TheInvalidCharacterMessageNamesTheOffendingCharacter()
+    {
+        var message = ClipRename.Validate("what?");
+
+        Assert.NotNull(message);
+        Assert.Contains("?", message);
+    }
+
+    [Fact]
+    public void TheInvalidCharacterMessageListsTheCommonOffenders()
+    {
+        var message = ClipRename.Validate("a:b");
+
+        Assert.NotNull(message);
+        Assert.Contains("*", message);
+        Assert.Contains("|", message);
+    }
 
     [Fact]
     public void AnOverLongNameIsRejected() =>

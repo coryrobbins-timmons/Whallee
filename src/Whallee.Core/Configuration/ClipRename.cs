@@ -23,28 +23,73 @@ public static class ClipRename
     /// </remarks>
     private const int MaxBaseNameLength = 120;
 
+    /// <summary>The characters named in the invalid-character message, in the order shown.</summary>
+    /// <remarks>
+    /// A readable subset of <see cref="Path.GetInvalidFileNameChars"/>, which also contains every
+    /// control character from 0 to 31 - listing those would be noise, since nobody types them on
+    /// purpose. The CHECK still uses the full framework set; only the MESSAGE uses this list.
+    /// </remarks>
+    private const string CommonInvalidChars = "\\ / : * ? \" < > |";
+
+    /// <summary>
+    /// Trims what Windows would strip anyway: whitespace at either end, and trailing dots.
+    /// </summary>
+    /// <remarks>
+    /// TRIMMED RATHER THAN REJECTED, changed 2026-09-03 on the owner's request. A trailing space is
+    /// the easiest slip to make and the hardest to see, and Windows silently strips both it and a
+    /// trailing dot when creating the file - so the choice was only ever between doing that
+    /// silently ourselves or scolding the user for a mistake with one obvious fix. A trailing dot
+    /// goes the same way for consistency: two near-identical slips behaving differently is worse
+    /// than either rule on its own.
+    ///
+    /// LEADING whitespace goes too. It is legal on Windows, but it is invisible in a file listing
+    /// and essentially never intended.
+    ///
+    /// TWO STEPS, NOT ONE. Trim() first, so "forest . " reaches TrimEnd as "forest ."; TrimEnd then
+    /// removes the dot and the space it exposes in a single pass, because it accepts both.
+    ///
+    /// CALL THIS AT COMMIT, NEVER ON EVERY KEYSTROKE. Trimming as the user types would delete the
+    /// space the instant it is typed, making a two-word name impossible to enter.
+    /// </remarks>
+    public static string Normalise(string? baseName) =>
+        (baseName ?? string.Empty).Trim().TrimEnd('.', ' ');
+
     /// <summary>Why this base name cannot be used, or null when it is fine.</summary>
     /// <remarks>
+    /// VALIDATES THE NORMALISED NAME, so a trailing space or dot is not an error - it is simply
+    /// trimmed. See <see cref="Normalise"/>. A name that is nothing BUT whitespace and dots still
+    /// fails, because normalising it leaves nothing to name the file.
+    ///
     /// A name identical to the clip's current one is NOT rejected here - this method does not know
     /// the old name. "Nothing to do" is the dialog's concern, and it disables its button rather
     /// than showing an error for opening a dialog and changing nothing.
     /// </remarks>
     public static string? Validate(string? baseName)
     {
-        if (string.IsNullOrWhiteSpace(baseName))
+        var name = Normalise(baseName);
+
+        if (name.Length == 0)
             return "Enter a name.";
 
-        if (baseName.Length > MaxBaseNameLength)
+        if (name.Length > MaxBaseNameLength)
             return $"That name is too long — keep it under {MaxBaseNameLength} characters.";
 
-        if (baseName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            return "A name cannot contain any of  \\ / : * ? \" < > |";
+        // NAMES THE OFFENDING CHARACTER, not just the rule. "A name cannot contain \ / : * ? etc"
+        // leaves the user comparing their name against a list; quoting the one they actually typed
+        // points straight at it. Distinct() because pasting a path yields the same character
+        // repeatedly and "\ \ \" reads as a stutter.
+        var offenders = name.Where(c => Path.GetInvalidFileNameChars().Contains(c))
+                            .Distinct()
+                            .ToArray();
 
-        // WINDOWS SILENTLY STRIPS A TRAILING DOT OR SPACE, so the file would end up with a
-        // different name than the one typed - a mismatch the user cannot see, and cannot fix by
-        // retyping the same thing.
-        if (baseName != baseName.TrimEnd('.', ' '))
-            return "A name cannot end with a dot or a space.";
+        if (offenders.Length > 0)
+        {
+            // Control characters have no printable form, so describe rather than quote them.
+            var shown = string.Join(" ", offenders.Select(
+                c => char.IsControl(c) ? "(a control character)" : c.ToString()));
+
+            return $"A name cannot contain {shown} — these are not allowed: {CommonInvalidChars}";
+        }
 
         return null;
     }

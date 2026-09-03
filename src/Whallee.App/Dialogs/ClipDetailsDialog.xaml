@@ -17,21 +17,26 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Location" Margin="0,0,12,6" />
             <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PathText" Margin="0,0,0,6"
                        TextWrapping="Wrap" />
 
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Size" Margin="0,0,12,6" />
-            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SizeText" Margin="0,0,0,6" />
+            <!-- The tiles no longer show the extension, so this is where it lives now. -->
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="FormatText" Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Duration" Margin="0,0,12,6" />
-            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="DurationText" Text="…"
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Size" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="SizeText" Margin="0,0,0,6" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Duration" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="DurationText" Text="…"
                        Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Resolution" Margin="0,0,12,0" />
-            <TextBlock Grid.Row="3" Grid.Column="1" x:Name="ResolutionText" Text="…" />
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Margin="0,0,12,0" />
+            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ResolutionText" Text="…" />
         </Grid>
 
         <Button Content="Close" HorizontalAlignment="Right" Margin="0,18,0,0"
