@@ -16,6 +16,34 @@ Guidance for Claude Code working in this repository.
 
 ## Known follow-ups
 
+**Updated 2026-09-04.** Since this list was first written, five features shipped: the thumbnail
+context menu (Apply to / Play / Rename / Open file location / Details / Delete), the settings page,
+Start with Windows, the app and tray icon, and pause-on-fullscreen / pause-on-battery. That closes
+**Plan 2 tasks 9, 10 and 13**. Specs and plans for each are in the sibling workspace under
+`..\Visual Studio Code\Claude Code\docs\superpowers\`.
+
+Still open, in the order they were last judged worth doing:
+
+- **Import latency** — item 2 below. Untouched.
+- **Format selection for bandwidth** — undecided. 4K costs ~144 MiB for a 57 s loop that 1080p would
+  deliver in ~10 MiB. Now has somewhere to live: the settings page exists.
+- **Per-display pause** — deferred deliberately when pause was built. It cannot reuse
+  `SHQueryUserNotificationState`, which is system-wide; it needs window enumeration and per-monitor
+  rectangle intersection. It is also what would close the *maximized-window* gap: Windows only
+  answers "is something fullscreen?", never "is the wallpaper covered?", so a maximized window does
+  not pause playback today.
+- **Tray Next / Pause over mpv IPC** — Plan 2 task 11. The IPC half is now built and proven
+  (`MpvIpc`), but `PlaybackGovernor` exposes no hook to coordinate with, and its act-only-on-
+  transition logic would override a manual resume within a second. That precedence question is
+  unanswered and should be settled before building it.
+- **OneDrive hydration** — Plan 2 task 12.
+- **~1 s input lag after Exit** — parked by the owner. Teardown measured at 126–214 ms, so teardown
+  is *not* the cause. Root cause unknown.
+- **Monitor unplug/replug** — never verified. Repositioning against the negative-Y virtual-screen
+  origin is the risk.
+
+The three original items follow, unchanged.
+
 Recorded 2026-09-02. Items 1 and 3 were done the same day (commit below); item 2 remains open.
 Plan 3 (YouTube import) is complete, reviewed, and confirmed working end to end; these are
 improvements, not defects.
@@ -201,10 +229,23 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   Consequence: **code changes do not reach the autostarted copy until you re-run that script.** It
   refuses to publish while Whallee is running rather than killing it — exiting via the tray is the
   only correct way to stop it, since it owns windows re-parented into Explorer's desktop.
-- `WhalleeConfig.StartWithWindows` **exists but is wired to nothing** — only config round-trip tests
-  reference it. Autostart is the shortcut above and nothing else. Making the flag actually create and
-  delete that shortcut is Plan 2 task 10, still deferred, and wants the Settings page (task 9) so
-  there is a way to toggle it without hand-editing `config.json`.
+- `WhalleeConfig.StartWithWindows` **is wired** — Plan 2 task 10, done 2026-09-03. The Settings
+  page's checkbox creates and deletes the logon shortcut via `StartupShortcut`. **The shortcut on
+  disk is the source of truth, not the flag:** the page reads `StartupShortcut.Exists()` and the
+  flag follows it, so deleting the `.lnk` by hand wins over a stale `true` in config. The checkbox
+  disables itself, with a stated reason, when there is no installed copy to point at.
+- **The Performance rules pause playback rather than restarting anything.** `PlaybackGovernor` polls
+  `SHQueryUserNotificationState` and `GetSystemPowerStatus` once a second and, on a *transition*
+  only, writes `{"command":["set_property","pause",…]}` to each player's `--input-ipc-server` pipe.
+  Two consequences worth knowing before changing it: it re-asserts after an engine restart by
+  tracking which pipes it last applied to (fresh mpv processes start **unpaused**), and its tick is
+  `async void`, so it carries a `_ticking` re-entrancy guard — an `async void` handler returns to
+  the dispatcher at its first `await`, so the next tick fires while the previous one is still
+  writing.
+- **A merely maximized window does not pause playback.** Windows offers no system-wide way to ask
+  "is the wallpaper covered?" — only "is something fullscreen?" — so a maximized Civil 3D window
+  leaves all three players running. A limitation, not a bug; per-display coverage detection is what
+  would close it.
 - **WinUI 3 does not build on this machine** — the XAML compiler fails. WPF builds clean. See the
   spec's Architecture amendment for the evidence before attempting WinUI again.
 - **The owner's terminal duplicates pasted text onto one line**, which has broken several commands.

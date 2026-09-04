@@ -1,144 +1,135 @@
-# HANDOFF — after Plan 3 (YouTube import), before the thumbnail context menu
+# HANDOFF — after the 2026-09-03/04 feature run, with no plan in flight
 
-**Covers:** picking Whallee up with no plan in flight. **Written:** 2026-09-02.
-**Supersedes** the 2026-08-31 handoff, which described Plan 2 Task 8 as next. That is long done.
+**Covers:** picking Whallee up with nothing half-finished. **Written:** 2026-09-04.
+**Supersedes** the 2026-09-02 handoff, which described a thumbnail context menu as "requested,
+design not started". That shipped, along with four other features. Nothing in the old document
+should be relied on.
 
-Read `CLAUDE.md` in this folder first — the pump-thread rule, the standing rulings, the environment
-facts and the measured download ceiling all live there and are **not** repeated here.
+Read `CLAUDE.md` in this folder first. The pump-thread rule, the standing rulings, every
+environment fact and every measured constraint live there and are **not** repeated here.
 
-> Snapshots rot. The **ledgers** under `.superpowers\sdd\` are the running record.
-> **Where this document and a ledger disagree, the ledger wins.** Read the tail of
-> `.superpowers\sdd\2026-09-01-whallee-youtube-import\progress.md` before this.
+> **There is no SDD ledger to consult any more.** All six plan workspaces under
+> `.superpowers\sdd\` were deleted on 2026-09-04, once everything durable in them had been moved
+> into `CLAUDE.md` — verified fact by fact before deleting, not assumed. **`CLAUDE.md` and
+> `git log` are the record now.** A future plan will create its own workspace there; the folder and
+> its `.gitignore` remain.
 
 ## 1. State of the tree
 
-Confirmed immediately before writing this:
+Confirmed by running the commands immediately before writing this:
 
-- Branch `main`, HEAD **`7c92319`** ("record the fifth download measurement"). **Tree clean.**
-- `dotnet build -v q --nologo` → **0 warnings, 0 errors**. `dotnet test` → **142 passing**.
-  (Both confirmed with the app closed. A later re-run failed on a locked DLL because the owner's
-  app was still open from a test — see §7. Same tree, no code change.)
+- Branch `main`, HEAD **`8846dd2`** ("feat(ui): add the Performance section with the two pause
+  rules"). **Tree clean** — `git status --short` printed nothing.
+- `dotnet build -v q --nologo` → **0 warnings, 0 errors**. `dotnet test --nologo -v q` →
+  **232 passing**.
 - No git remote; local `main` only. Committing directly to `main` is pre-approved on this repo.
 
-**Nothing is half-finished and no plan is mid-execution.** This is a clean seam, not a rescue.
+**Nothing is half-finished and no plan is mid-execution.** This is a clean seam.
 
-## 2. What works on screen
+## 2. What shipped, and what is actually verified
 
-Plans 1–3 are complete and owner-verified on real hardware. The engine plays looping video across
-three displays; the WPF control panel adds clips from a file or a YouTube URL and pins them per
-display or to all of them.
+Five features landed on 2026-09-03 and 2026-09-04:
 
-The YouTube feature was confirmed end to end twice, on 2026-09-01 and 2026-09-02, the second time
-with a 4K60 source and a non-zero start time — which exercised both of the message paths added that
-day in a single run.
+| Feature | Owner-verified? |
+|---|---|
+| Thumbnail context menu — Apply to ▸ / Play in default player / Rename… / Open file location / Details… / Delete | **Confirmed** — the owner renamed a clip five times and deleted one that was playing |
+| Settings page — Displays, Playback (scaling), About | **Confirmed** — the owner sent a screenshot of it working |
+| Start with Windows, app icon, tray icon, desktop + logon shortcuts | **Confirmed** — the owner reported the desktop shortcut and tray icon working |
+| Rename a clip, repointing its pins | **Confirmed** — `config.json` and `whallee.log` both show three pins repointed |
+| Pause on fullscreen / on battery | **UNVERIFIED — see §3** |
 
 ## 3. Where the work stopped, and why
 
-The owner asked to stop and hand off. Two things had just landed, and one had just been declined:
+The owner asked for this handoff to be rewritten and the plan workspaces cleared. Nothing was in
+flight; no bug caused the stop.
 
-- **Done and committed** — the URL dialog redesign (`3829316`) and the fifth download measurement
-  (`7c92319`). Details in the ledger tail; the durable facts are in `CLAUDE.md`.
-- **Requested, then explicitly stopped before any design work** — a **right-click context menu on
-  library thumbnails**, modelled on Lively's (About / Set as Wallpaper / Preview / Customise /
-  Open file location / Share / Delete / Edit; the owner supplied a screenshot of Lively's menu).
-  Brainstorming was opened and halted before the first question. **Nothing was written or decided.**
-  Start it from scratch at `superpowers:brainstorming`.
+**One thing is genuinely unverified: the pause feature has never been exercised on hardware.**
+It is committed, reviewed and published, and **both rules default to off**, so an install whose
+checkboxes are never touched behaves exactly as it did before. But nobody has confirmed it pauses.
 
-There is real design work waiting there, not just wiring: several of Lively's items have no
-meaningful Whallee equivalent yet (**Customise** is Lively's per-wallpaper property system;
-**Preview** and **Edit** have no host to run in), and *Set as Wallpaper* already exists as the
-plain left-click on a tile. Expect the menu to be shorter than Lively's, and expect the useful
-question to be which items to leave out.
+The check that matters most is this one: **change something that forces an engine restart while
+playback is paused** — applying a clip from the Library page does it — and confirm playback is
+*still* paused a second later. Fresh mpv processes start **unpaused**, so this is the only check
+that distinguishes "the governor re-asserts its state" from "it silently lost track". Every other
+part of the feature could look fine while that is broken.
 
-## 4. What to read for the next feature
+## 4. What to do next
 
-The whole surface is small and worth reading before proposing anything:
+1. **Get the pause feature verified**, or treat it as unproven. It is the only shipped thing with
+   no hardware confirmation, and the restart check above is the one worth insisting on.
+2. **Then pick from "Known follow-ups" in `CLAUDE.md`**, rewritten 2026-09-04 and ordered by how
+   worthwhile each item last looked. Do not re-derive that list.
 
-| File | Why |
-|---|---|
-| `src/Whallee.App/ViewModels/ClipTile.cs` | 27 lines. `Path`, `FileName`, lazily-filled `ThumbnailPath`. |
-| `src/Whallee.App/Pages/LibraryPage.xaml` | The tile `DataTemplate` — the menu attaches here. |
-| `src/Whallee.App/Pages/LibraryPage.xaml.cs` | Click handlers; note the `async void` wrapping rule. |
-| `src/Whallee.App/ViewModels/LibraryViewModel.cs` | `ApplyClip`, `ImportFileAsync`, `LoadAsync`. |
+Nothing is blocked on a decision.
 
-`ApplyClip` is the model for any new command: it writes config, reports through `UiReporter`, and
-calls `_engine.ApplyConfigChange()`. **A delete command has no equivalent and would be the first
-destructive action in the app** — it must also clear any `PinnedPath` that referenced the file, or a
-display is left pinned to a clip that no longer exists.
+## 5. Standing constraints
 
-## 5. Rules that have already cost real bugs
+All settled. Do not reopen them.
 
-Both remain live. Neither is theoretical.
+- **The owner runs the app and the harness verbs; you never do.** Hand over the exact command and
+  wait. **Never kill or restart Explorer, and never change display settings.**
+- **Never kill the Whallee process to unblock a build.** `MSB3021`/`MSB3027` naming
+  `locked by: "Whallee (<pid>)"` means the app is running — ask the owner to exit via the tray icon.
+  It owns windows re-parented into Explorer's desktop.
+- **Testing boundary.** Unit tests cover pure logic in `Whallee.Core` only. No tests for Win32,
+  `SetParent`, mpv, XAML, the shell, COM or named pipes. Settled long before this run.
+- **No MVVM/ICommand.** Every interaction is a code-behind handler, deliberately.
+- **The owner's terminal duplicates pasted text.** One **short** command at a time.
 
-- **Two opposite thread rules coexist.** *Engine / host windows:* never block the UI thread — it
-  owns windows `SetParent`-ed into Explorer's desktop, so a stall freezes the owner's whole desktop.
-  *Tray:* never touch the UI thread from anywhere else — `H.NotifyIcon` raises callbacks on its own
-  thread. A fix shaped like one is wrong for the other.
-- **Subscribe WPF handlers in code after `InitializeComponent()`, never in XAML.** A XAML-wired
-  handler fires while the tree is still being built, before later-declared elements exist. This has
-  killed the app twice — once at startup in Plan 2, once in the URL dialog in Plan 3. The surviving
-  comment in `UrlImportDialog.xaml.cs` explains it at the subscription site.
-- **`async void` handlers wrap their entire body.** An exception escaping one reaches the Dispatcher
-  unhandled and terminates the process. Every handler in `LibraryPage.xaml.cs` follows this.
-
-## 6. Open with the owner
-
-| Item | State |
-|---|---|
-| **Thumbnail context menu** | Requested 2026-09-02, design not started. §3. |
-| **Import latency (~6 s)** | Open. `yt-dlp` launches **twice** for overlapping data (`--print`, then `-g`); the 144 MiB download itself took ~0.5 s. A real change to the probe/resolve split. |
-| **Format selection for bandwidth** | Raised 2026-09-02, undecided. 4K costs ~144 MiB for a 57-second loop that 1080p would deliver in ~10 MiB. **Bandwidth only — it buys no extra length.** |
-| **Plan 2 tasks 9–13** | **Deferred, explicitly NOT cancelled** — the owner said so in as many words. Settings page, Start with Windows, tray Next/Pause over mpv IPC, OneDrive hydration, icon. |
-| **App icon (Plan 2 task 13)** | Blocked: source image never saved to disk. Disney/Pixar property — fine personally, cannot ship. |
-| **~1 s input lag after Exit** | Parked by the owner. Teardown measured at 126–214 ms, so teardown is **not** the cause. Root cause unknown; do not "fix" it without investigating. |
-| **Monitor unplug/replug** | Still unverified: repositioning against the negative-Y virtual-screen origin. Offer when a display change is convenient. |
-
-## 7. Facts to re-verify, never trust
+## 6. Facts to re-verify, never trust
 
 These commands print and exit.
 
 | Fact | How | Last known |
 |---|---|---|
-| HEAD, branch, tree | `git status`, `git rev-parse --short HEAD` | `7c92319`, clean |
-| Tests | `dotnet test --nologo -v q` | 142 passing |
+| HEAD, branch, tree | `git status`, `git rev-parse --short HEAD` | `8846dd2`, clean |
+| Tests | `dotnet test --nologo -v q` | 232 passing |
 | Build warnings | `dotnet build -v q --nologo` | 0 |
-| Displays | `…\Whallee.Harness.exe displays` | 3 displays |
-| WorkerW / Progman | `…\Whallee.Harness.exe workerw` | **churn constantly; never cache** |
-| ffmpeg / yt-dlp paths | `%LOCALAPPDATA%\Whallee\config.json` | version-stamped winget paths that **move on update** |
+| Whether the app is running | `Get-Process Whallee` | not running when this was written |
+| Displays | `…\Whallee.Harness.exe displays` | 3 |
+| ffmpeg / yt-dlp / mpv paths | the settings page's About section, or `%LOCALAPPDATA%\Whallee\config.json` | version-stamped winget paths that **move on update** |
 
-**The app's exe is `Whallee.exe`, in a `win-x64\` subfolder** — not `Whallee.App.exe`, and not
-directly under the TFM folder. Getting this wrong cost two round trips on 2026-09-02:
+**The dev exe is `Whallee.exe` in a `win-x64\` subfolder** — not `Whallee.App.exe`:
 
 ```
 src\Whallee.App\bin\Debug\net8.0-windows\win-x64\Whallee.exe
 ```
 
-**A build failing with MSB3021/MSB3027 on `Whallee.Core.dll` means the app is still running**, not
-that the code is broken — the error names the holder, e.g. `locked by: "Whallee (40336)"`. Ask the
-owner to exit via the tray icon; **do not kill the process**, it owns the wallpaper windows. Seen
-on 2026-09-02 immediately after an owner test, on a tree that had just built clean.
+**But that is not what the owner launches.** The installed copy at
+`%LOCALAPPDATA%\Whallee\app\Whallee.exe` is what the desktop and logon shortcuts point at, and it
+only changes when `tools\publish-app.ps1` is run. `CLAUDE.md` explains why the two are deliberately
+separate — the short version is that an autostarted copy inside `bin\` would hold the DLLs you are
+about to rebuild.
 
-**`one` and `all` are not yours to run.** The smoke script `tools/smoke-app.ps1` is owner-approved
-for builds that do **not** construct `WallpaperEngine` only; it refuses with exit 3 otherwise, and
-extending it to engine builds was declined.
+## 7. Tried and rejected
 
-## 8. Handover etiquette on this machine
+Dead ends and false leads from this run, so they are not re-walked:
 
-- **The owner runs the app and the harness verbs; you never do.** Hand over the exact command and
-  wait. **Never kill or restart Explorer, and never change display settings.**
-- **The owner's terminal duplicates pasted text.** One **short** command at a time, in a
-  `powershell`-tagged fence. `$env:OneDrive` halves a long path.
-- **Verify owner checks from artifacts when the pass condition is "nothing visibly changed".**
-  `%LOCALAPPDATA%\Whallee\whallee.log` has caught a reported success that was actually a crash.
-- **Read `whallee.log` after any import** — it now carries the byte count that was removed from the
-  user-facing message.
-- **Beware silent text corruption when scripting file edits.** Backslashes in a non-raw Python
-  string are escape sequences: `\2026-09-02` became an invisible U+0082 control character in
-  `CLAUDE.md` on 2026-09-02, survived `grep` and the build, and broke every later exact-match edit
-  with no visible cause. Build Windows paths with `chr(92)`, or use the Edit tool. The same file
-  family also flips CRLF→LF if written back with `newline=''`.
+- **Deriving "can this display be pinned" from `WallpaperEngine.ActivePlayers`.** Shipped, then
+  reported broken by the owner. `ActivePlayers` is empty for the whole of an engine restart, and a
+  restart pumps messages — so the settings page could be built during that window and come up with
+  Pinned greyed out until the user navigated away and back. Replaced by a per-row clip dropdown
+  reading only config and the library. **The lesson generalises: never gate a config edit on
+  transient engine state.**
+- **Rejecting a trailing space in a rename.** Shipped, then removed at the owner's request. Windows
+  strips trailing spaces and dots when creating the file anyway, so the only real choice was doing
+  it silently or scolding the user for a slip with one obvious fix. Invalid *characters* still
+  error, because silently stripping those would mangle a name into something the user did not
+  choose — the two cases are not alike.
+- **Unpinning a display before deleting its clip.** Designed, approved, then discarded after reading
+  `ClipResolver.Resolve`: a *shuffling* display holds a clip open too, and a restart re-randomises,
+  so unpinning could not guarantee the handle was released — and a dangling `PinnedPath` turned out
+  to be harmless already. Delete is now optimistic, escalating only on failure.
+- **Trusting a code review's verdict without its reasoning.** Twice in this run a reviewer approved
+  code on reasoning that was wrong, and once a documentation fix introduced a factually incorrect
+  comment that only its own re-review caught. Check the argument, not just the conclusion.
 
----
+## 8. Environment gotchas
 
-*Plan 3 is finished. This handoff covers a repo with no plan in flight — when the context menu (or
-Plan 2's remainder) is picked up and planned, rewrite this rather than leaving it looking current.*
+`CLAUDE.md` carries the full list. The two that cost the most time in this run:
+
+- **Backslashes in a non-raw Python string silently corrupt files.** Writing a test via a Python
+  heredoc turned `\forest` into a form-feed character — an invisible control byte that survived
+  `grep` and broke a later exact-match edit with no visible cause. Use the Read/Write/Edit tools, or
+  `bytes([92])`. Separately, `sed -i` flipped that file's CRLF endings to LF as a side effect.
+- **A build failure is often not a code failure.** See §5.
