@@ -11,22 +11,31 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="Apply to:" VerticalAlignment="Center" Margin="0,0,8,0" />
-            <ComboBox x:Name="TargetSelector" Width="220" SelectedIndex="0" />
-            <Button x:Name="AddFromFile" Content="Add from file…" Margin="16,0,0,0" Padding="8,2"
+
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="Apply to" VerticalAlignment="Center" Margin="0,0,10,0"
+                       Foreground="{StaticResource TextSecondaryBrush}" />
+            <ComboBox x:Name="TargetSelector" Width="240" SelectedIndex="0" />
+            <Button x:Name="AddFromFile" Content="Add from file…" Margin="20,0,0,0"
                     Click="AddFromFile_Click" />
-            <Button x:Name="AddFromUrl" Content="Add from URL…" Margin="8,0,0,0" Padding="8,2"
+            <Button x:Name="AddFromUrl" Content="Add from URL…" Margin="8,0,0,0"
                     Click="AddFromUrl_Click" />
         </StackPanel>
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">
             <ItemsControl x:Name="TileHost">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Button Margin="6" Padding="0" BorderThickness="1" Tag="{Binding Path}"
+                        <!--
+                            STILL A BUTTON, AND Tag STILL BINDS Path. Tile_Click pattern-matches
+                            `sender is not Button { Tag: string clipPath }`; changing either would
+                            break clip application silently rather than loudly.
+                        -->
+                        <Button Margin="0,0,14,14" Tag="{Binding Path}"
+                                Style="{StaticResource ClipCardStyle}"
                                 Click="Tile_Click">
                             <!-- Deliberately EMPTY. Populated in code on ContextMenuOpening,
                                  because the "Apply to" submenu lists the displays attached at that
@@ -35,13 +44,31 @@
                                 <ContextMenu />
                             </Button.ContextMenu>
                             <StackPanel Width="240">
-                                <Image Height="135" Stretch="UniformToFill"
-                                       Source="{Binding ThumbnailPath,
-                                                        Converter={StaticResource PathToImage}}" />
+                                <!--
+                                    An ImageBrush on a Border, not an Image element. That is what
+                                    lets the thumbnail have rounded top corners at all - an Image
+                                    cannot be corner-clipped without an OpacityMask. The brush
+                                    takes the same UniformToFill the Image used.
+
+                                    The Border underneath shows through while ThumbnailPath is
+                                    still null, which it is for every tile until its frame has been
+                                    generated - the grid appears at once and fills in.
+                                -->
+                                <Border Height="135" CornerRadius="7,7,0,0"
+                                        Background="{StaticResource SurfaceOverlayBrush}">
+                                    <Border CornerRadius="7,7,0,0">
+                                        <Border.Background>
+                                            <ImageBrush Stretch="UniformToFill"
+                                                        ImageSource="{Binding ThumbnailPath,
+                                                                     Converter={StaticResource PathToImage}}" />
+                                        </Border.Background>
+                                    </Border>
+                                </Border>
+
                                 <!-- DisplayName, not FileName: the extension is noise repeated on
                                      every tile. The tooltip still carries the real file name,
                                      which matters because long names are ellipsised here. -->
-                                <TextBlock Text="{Binding DisplayName}" Margin="4"
+                                <TextBlock Text="{Binding DisplayName}" Padding="10,8"
                                            TextTrimming="CharacterEllipsis"
                                            ToolTip="{Binding FileName}" />
                             </StackPanel>
