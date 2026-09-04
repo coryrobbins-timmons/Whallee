@@ -55,6 +55,7 @@ public sealed class PlaybackGovernor : IDisposable
     private bool _paused;
     private string[] _appliedTo = Array.Empty<string>();
     private bool _disposed;
+    private bool _ticking;
 
     public PlaybackGovernor(EngineHost engine, UiReporter reporter)
     {
@@ -78,6 +79,15 @@ public sealed class PlaybackGovernor : IDisposable
     /// </remarks>
     private async void OnTick(object? sender, EventArgs e)
     {
+        // RE-ENTRANCY GUARD. async void returns to the dispatcher at the first await, so the next
+        // tick fires while ApplyAsync is still awaiting its pipe writes - with _paused and
+        // _appliedTo not yet updated, which would re-apply and log a second time. Three unreachable
+        // players at a 500 ms connect timeout each is 1.5 s against a 1 s tick, so the overlap is
+        // reachable, not theoretical. Skipping is right rather than queueing: the next tick is a
+        // second away and re-evaluates from scratch.
+        if (_ticking) return;
+        _ticking = true;
+
         try
         {
             var config = _engine.Config;
@@ -111,6 +121,10 @@ public sealed class PlaybackGovernor : IDisposable
         catch (Exception ex)
         {
             _reporter.Report($"pause check failed: {ex.Message}");
+        }
+        finally
+        {
+            _ticking = false;
         }
     }
 
