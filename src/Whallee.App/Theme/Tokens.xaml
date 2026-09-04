@@ -1,0 +1,51 @@
+<!--
+    DESIGN TOKENS ONLY. No styles, no templates, no control knowledge.
+
+    This is the one file a future light theme would swap. Everything else in Theme\ refers to these
+    keys and names no colour of its own, which is what makes "add light mode later" a palette file
+    rather than a refactor. If you find yourself writing a hex value anywhere but here, stop.
+
+    Palette: neutral dark surfaces with a warm amber accent, taken from the app icon. Amber is used
+    sparingly and deliberately - it marks the interactive or active thing, so it stops meaning that
+    the moment it is everywhere.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Surfaces, from furthest back to nearest front. -->
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#141414" />
+    <SolidColorBrush x:Key="SurfaceRaisedBrush" Color="#1C1C1C" />
+    <SolidColorBrush x:Key="SurfaceOverlayBrush" Color="#242424" />
+    <SolidColorBrush x:Key="StrokeBrush" Color="#2E2E2E" />
+
+    <!--
+        Primary text is very slightly warm (#F0EDE8, not #FFFFFF) so it sits with the amber rather
+        than fighting it, and so a wall of video thumbnails stays the brightest thing on screen.
+    -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F0EDE8" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9A948C" />
+    <SolidColorBrush x:Key="TextDisabledBrush" Color="#5E5A55" />
+
+    <!--
+        Amber lands around 8:1 against #141414, and #141414 lands around 8:1 against amber. Both
+        directions were checked because the accent is used as a foreground AND as a fill with dark
+        text on it.
+    -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#E8A33D" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#F2B457" />
+    <SolidColorBrush x:Key="AccentPressedBrush" Color="#C9862A" />
+
+    <!--
+        NOT #B00020, which is what the dialogs used before. That is a Material LIGHT-theme red and
+        is close to unreadable on #141414 - an invisible error message is a functional defect, not
+        a cosmetic one.
+    -->
+    <SolidColorBrush x:Key="DangerBrush" Color="#E5484D" />
+
+    <!-- Text on top of an amber fill. Named, so no control has to know the surface colour. -->
+    <SolidColorBrush x:Key="OnAccentBrush" Color="#141414" />
+
+    <CornerRadius x:Key="ControlRadius">4</CornerRadius>
+    <CornerRadius x:Key="CardRadius">8</CornerRadius>
+
+</ResourceDictionary>

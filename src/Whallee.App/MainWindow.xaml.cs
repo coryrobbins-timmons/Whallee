@@ -11,6 +11,12 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // No HWND exists yet at this point; Apply defers itself to SourceInitialized. Called here
+        // rather than from a XAML SourceInitialized attribute to match this codebase's convention
+        // of subscribing in code after InitializeComponent, never in markup.
+        Interop.DarkTitleBar.Apply(this);
+
         ShowPage(0);
 
         // Bound after InitializeComponent, so the engine's start-up messages - queued while
