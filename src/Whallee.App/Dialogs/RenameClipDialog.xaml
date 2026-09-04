@@ -2,18 +2,19 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Rename clip" Width="460" SizeToContent="Height"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Style="{StaticResource AppWindowStyle}">
     <StackPanel Margin="16">
         <TextBlock Text="New name" FontWeight="SemiBold" Margin="0,0,0,4" />
 
         <DockPanel>
             <!-- The extension is shown, never edited. See the code-behind remarks. -->
             <TextBlock x:Name="ExtensionText" DockPanel.Dock="Right" VerticalAlignment="Center"
-                       Margin="6,0,0,0" Foreground="#606060" />
+                       Margin="6,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" />
             <TextBox x:Name="NameBox" />
         </DockPanel>
 
-        <TextBlock x:Name="ErrorText" Foreground="#B00020" Margin="0,8,0,0"
+        <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" Margin="0,8,0,0"
                    TextWrapping="Wrap" Visibility="Collapsed" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">

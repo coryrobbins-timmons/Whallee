@@ -146,6 +146,17 @@ public partial class SettingsPage : UserControl
 
     private void RefreshApplyButton() => ApplyButton.IsEnabled = _model.IsDirty;
 
+    /// <summary>
+    /// The theme's secondary text brush, for the controls this page builds in code.
+    /// </summary>
+    /// <remarks>
+    /// Resolved through the element tree on each call rather than captured once, because these rows
+    /// are torn down and rebuilt on every Refresh(). Falls back to Gray so a missing token degrades
+    /// to the old appearance rather than throwing while building a row.
+    /// </remarks>
+    private Brush Secondary() =>
+        TryFindResource("TextSecondaryBrush") as Brush ?? Brushes.Gray;
+
     private void BuildDisplayRows()
     {
         DisplayHost.Children.Clear();
@@ -171,7 +182,7 @@ public partial class SettingsPage : UserControl
                 Text = row.NowPlaying ?? "(not playing)",
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = Brushes.Gray,
+                Foreground = Secondary(),
                 Margin = new Thickness(0, 0, 12, 0)
             };
             Grid.SetColumn(playing, 1);
@@ -283,7 +294,7 @@ public partial class SettingsPage : UserControl
                 IsReadOnly = true,
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
-                Foreground = Brushes.Gray,
+                Foreground = Secondary(),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 2)
             };
