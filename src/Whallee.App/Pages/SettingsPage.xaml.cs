@@ -52,6 +52,10 @@ public partial class SettingsPage : UserControl
         ScalingBox.SelectionChanged += ScalingBox_SelectionChanged;
         StartWithWindowsBox.Checked += StartWithWindows_Toggled;
         StartWithWindowsBox.Unchecked += StartWithWindows_Toggled;
+        PauseFullscreenBox.Checked += PauseRule_Toggled;
+        PauseFullscreenBox.Unchecked += PauseRule_Toggled;
+        PauseBatteryBox.Checked += PauseRule_Toggled;
+        PauseBatteryBox.Unchecked += PauseRule_Toggled;
         ApplyButton.Click += Apply_Click;
 
         Refresh();
@@ -86,6 +90,9 @@ public partial class SettingsPage : UserControl
             }
 
             ScalingBox.SelectedIndex = Array.FindIndex(ScalingChoices, c => c.Mode == _model.Scaling);
+
+            PauseFullscreenBox.IsChecked = _model.PauseOnFullscreen;
+            PauseBatteryBox.IsChecked = _model.PauseOnBattery;
 
             BuildDisplayRows();
             BuildAboutTable();
@@ -354,6 +361,27 @@ public partial class SettingsPage : UserControl
         {
             _loading = false;
             _reporter.Report($"could not change the startup setting: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Instant-apply, like Start with Windows: neither rule needs the engine restarted, so there is
+    /// nothing for the Apply button to batch. Synchronous - SaveConfig is a small local write, and
+    /// EngineHost already saves config on this thread.
+    /// </summary>
+    private void PauseRule_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+
+        try
+        {
+            _model.SetPauseRules(
+                PauseFullscreenBox.IsChecked == true,
+                PauseBatteryBox.IsChecked == true);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not save the pause settings: {ex.Message}");
         }
     }
 }

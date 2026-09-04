@@ -125,6 +125,32 @@ public sealed class SettingsViewModel
         "cannot start with Windows yet — there is no installed copy at "
         + $"{StartupShortcut.InstalledExePath}. Run tools\\publish-app.ps1 first.");
 
+    // ---- performance rules ---------------------------------------------------
+
+    public bool PauseOnFullscreen => _engine.Config.PauseOnFullscreen;
+    public bool PauseOnBattery => _engine.Config.PauseOnBattery;
+
+    /// <summary>Records both Performance rules and saves.</summary>
+    /// <remarks>
+    /// SaveConfig, NOT ApplyConfigChange. Neither rule changes any player's command line, so
+    /// restarting three mpv processes would be a visible flicker for nothing - the same split the
+    /// rest of this class draws. PlaybackGovernor reads config on its next tick, so a change takes
+    /// effect within a second without anything restarting.
+    ///
+    /// BOTH VALUES ARE WRITTEN TOGETHER because the page hands over the state of both checkboxes;
+    /// that keeps config and the UI in step even if a handler is ever missed.
+    /// </remarks>
+    public void SetPauseRules(bool onFullscreen, bool onBattery)
+    {
+        _engine.Config.PauseOnFullscreen = onFullscreen;
+        _engine.Config.PauseOnBattery = onBattery;
+        _engine.SaveConfig();
+
+        _reporter.Report(
+            $"pause rules — fullscreen: {(onFullscreen ? "on" : "off")}, " +
+            $"battery: {(onBattery ? "on" : "off")}");
+    }
+
     // ---- rows ----------------------------------------------------------------
 
     /// <summary>

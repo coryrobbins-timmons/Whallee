@@ -24,6 +24,14 @@
                     <ComboBox x:Name="ScalingBox" Width="180" />
                 </StackPanel>
 
+                <TextBlock Text="Performance" FontWeight="Bold" FontSize="14" Margin="0,20,0,6" />
+                <CheckBox x:Name="PauseFullscreenBox"
+                          Content="Pause when a fullscreen app is running" />
+                <TextBlock Text="Also pauses while the machine is locked."
+                           Margin="22,2,0,0" Foreground="#808080" />
+                <CheckBox x:Name="PauseBatteryBox" Margin="0,8,0,0"
+                          Content="Pause while on battery" />
+
                 <TextBlock Text="About" FontWeight="Bold" FontSize="14" Margin="0,20,0,6" />
                 <Grid x:Name="AboutHost" />
 
