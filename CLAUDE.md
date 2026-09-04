@@ -77,11 +77,39 @@ this greenfield repo. No git remote.
 | Project | What it is |
 |---|---|
 | `src/Whallee.Core` | The engine. **No UI framework references, ever.** |
+| `src/Whallee.App` | The WPF control panel. Code-behind handlers throughout; no MVVM, no `ICommand`. |
 | `src/Whallee.Harness` | Console harness. The headless acceptance test for the engine. |
 | `tests/Whallee.Core.Tests` | Unit tests for pure logic only. |
 
 Plans and the design spec live in the sibling workspace at
 `..\Visual Studio Code\Claude Code\docs\superpowers\`.
+
+### The theme (`src/Whallee.App/Theme/`)
+
+Dark, amber-accented, hand-rolled — no theme library, and no plan to add one. Three dictionaries
+merged by `App.xaml` **in this order, which is load-bearing**: `Tokens.xaml` (every colour and
+radius in the app, and the only place a hex value may appear), `Controls.xaml` (implicit styles for
+stock controls), `Components.xaml` (keyed styles for Whallee's own parts).
+
+**Two WPF traps were paid for here. Do not re-learn them:**
+
+1. **A `StaticResource` inside a merged dictionary never resolves against a sibling dictionary** —
+   only against its own chain. `Controls.xaml` and `Components.xaml` therefore each merge
+   `Tokens.xaml` themselves. Listing them side by side under `Application.Resources` is not enough
+   and throws `XamlParseException` at startup.
+2. **An implicit style is matched on the element's exact runtime type, not its base type.** So
+   `<Style TargetType="Window">` applies to no window in this app — `MainWindow` and all three
+   dialogs are derived types. Those two styles are keyed (`AppWindowStyle`, `AppPageStyle`) and
+   named explicitly on each window and page.
+
+Also: a trigger's `TargetName` can only name an element in the template. Pointing one at a named
+`RotateTransform` or `TranslateTransform` fails the build with `MC4111` — set the whole
+`RenderTransform` instead.
+
+**Neither of the first two is visible to `dotnet build`.** Both are load-time failures. There is an
+out-of-tree harness pattern for catching them: merge the dictionaries with `XamlReader`, resolve
+every token key, and `Measure()` an instance of every styled type. Worth rebuilding if the theme is
+touched again.
 
 ## The one rule that dominates this codebase
 
