@@ -26,5 +26,18 @@ public sealed class WhalleeConfig
 
     public ScalingMode Scaling { get; set; } = ScalingMode.FillCrop;
     public bool StartWithWindows { get; set; }
+
+    /// <summary>Pause playback while a fullscreen app runs, or the machine is locked.</summary>
+    /// <remarks>
+    /// DEFAULTS TO FALSE, like its sibling below: the feature is opt-in, so an existing install
+    /// behaves exactly as it did until the owner ticks the box. Adding these two fields needs NO
+    /// version bump and no migration - a config file written before they existed simply
+    /// deserialises them to false.
+    /// </remarks>
+    public bool PauseOnFullscreen { get; set; }
+
+    /// <summary>Pause playback while running on battery.</summary>
+    public bool PauseOnBattery { get; set; }
+
     public List<DisplayAssignment> Displays { get; set; } = new();
 }
