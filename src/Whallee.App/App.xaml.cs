@@ -8,6 +8,7 @@ public partial class App : Application
 {
     private Mutex? _instanceLock;
     private TrayIcon? _tray;
+    private PlaybackGovernor? _governor;
 
     public UiReporter Reporter { get; } = new();
     public EngineHost? Engine { get; private set; }
@@ -49,6 +50,10 @@ public partial class App : Application
         // MainWindow binds to the collection.
         Engine.Start();
 
+        // AFTER Start(), so its first tick finds real players. Before the window, because it needs
+        // nothing from the UI - it only reads config and the engine's player list.
+        _governor = new PlaybackGovernor(Engine, Reporter);
+
         var window = new MainWindow();
         MainWindow = window;
         window.Show();
@@ -75,6 +80,11 @@ public partial class App : Application
         // Tray first: it owns a message window, and leaving a live icon behind while the engine
         // tears down invites a menu click into a half-disposed app.
         _tray?.Dispose();
+
+        // Governor before the engine. It ticks every second and reaches into the engine's player
+        // list; leaving it running while the engine tears down invites a tick against players that
+        // are being disposed underneath it.
+        _governor?.Dispose();
 
         // Engine before reporter. Disposing the engine emits teardown messages, and those are the
         // ones a post-mortem most wants; flushing the log first would throw them away.
