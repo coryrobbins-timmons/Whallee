@@ -295,6 +295,9 @@ public partial class SettingsPage : UserControl
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
                 Foreground = Secondary(),
+                // The themed TextBox padding (8,5) would indent these away from their labels.
+                // They are a read-only table here, not an input.
+                Padding = new Thickness(0),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 2)
             };
