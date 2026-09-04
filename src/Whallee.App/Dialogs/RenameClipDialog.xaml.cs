@@ -31,6 +31,11 @@ public partial class RenameClipDialog : Window
     {
         InitializeComponent();
 
+        // Follows this file's stated convention: subscribed in code after
+        // InitializeComponent, never in the markup. Apply defers itself to
+        // SourceInitialized because there is no HWND yet.
+        Interop.DarkTitleBar.Apply(this);
+
         _originalBaseName = Path.GetFileNameWithoutExtension(fileName);
         ExtensionText.Text = Path.GetExtension(fileName);
         NameBox.Text = _originalBaseName;

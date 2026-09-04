@@ -4,11 +4,11 @@
         Title="Add from URL" Width="520" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Style="{StaticResource AppWindowStyle}">
-    <StackPanel Margin="16">
+    <StackPanel Margin="20">
         <TextBlock Text="YouTube link" FontWeight="SemiBold" Margin="0,0,0,4" />
         <DockPanel>
             <Button x:Name="ProbeButton" Content="Look up" DockPanel.Dock="Right"
-                    Margin="8,0,0,0" Padding="10,3" Click="Probe_Click" />
+                    Margin="8,0,0,0" Click="Probe_Click" />
             <TextBox x:Name="UrlBox" />
         </DockPanel>
 
@@ -32,8 +32,8 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button x:Name="ImportButton" Content="Import" IsEnabled="False"
-                    Padding="14,4" Click="Import_Click" />
-            <Button Content="Cancel" Margin="8,0,0,0" Padding="14,4" IsCancel="True" />
+                    Style="{StaticResource PrimaryButtonStyle}" Click="Import_Click" />
+            <Button Content="Cancel" Margin="8,0,0,0" IsCancel="True" />
         </StackPanel>
     </StackPanel>
 </Window>

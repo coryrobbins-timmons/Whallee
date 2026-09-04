@@ -27,6 +27,11 @@ public partial class ClipDetailsDialog : Window
     {
         InitializeComponent();
 
+        // Follows this file's stated convention: subscribed in code after
+        // InitializeComponent, never in the markup. Apply defers itself to
+        // SourceInitialized because there is no HWND yet.
+        Interop.DarkTitleBar.Apply(this);
+
         _clipPath = clipPath;
         _ffmpegPath = ffmpegPath;
 

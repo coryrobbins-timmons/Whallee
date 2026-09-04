@@ -27,6 +27,11 @@ public partial class UrlImportDialog : Window
     public UrlImportDialog(string ytDlpPath)
     {
         InitializeComponent();
+
+        // Follows this file's stated convention: subscribed in code after
+        // InitializeComponent, never in the markup. Apply defers itself to
+        // SourceInitialized because there is no HWND yet.
+        Interop.DarkTitleBar.Apply(this);
         _ytDlpPath = ytDlpPath;
 
         // SUBSCRIBED HERE, NOT IN XAML, AND THAT IS LOAD-BEARING. A XAML-wired TextChanged fires

@@ -4,7 +4,7 @@
         Title="Rename clip" Width="460" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Style="{StaticResource AppWindowStyle}">
-    <StackPanel Margin="16">
+    <StackPanel Margin="20">
         <TextBlock Text="New name" FontWeight="SemiBold" Margin="0,0,0,4" />
 
         <DockPanel>
@@ -19,8 +19,8 @@
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <Button x:Name="OkButton" Content="Rename" IsEnabled="False" IsDefault="True"
-                    Padding="14,4" />
-            <Button Content="Cancel" Margin="8,0,0,0" Padding="14,4" IsCancel="True" />
+                    Style="{StaticResource PrimaryButtonStyle}" />
+            <Button Content="Cancel" Margin="8,0,0,0" IsCancel="True" />
         </StackPanel>
     </StackPanel>
 </Window>

@@ -4,7 +4,7 @@
         Title="Clip details" Width="560" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Style="{StaticResource AppWindowStyle}">
-    <StackPanel Margin="16">
+    <StackPanel Margin="20">
         <TextBlock x:Name="NameText" FontWeight="SemiBold" TextWrapping="Wrap"
                    Margin="0,0,0,12" />
 
@@ -21,26 +21,26 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Location" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Location" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PathText" Margin="0,0,0,6"
                        TextWrapping="Wrap" />
 
             <!-- The tiles no longer show the extension, so this is where it lives now. -->
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="1" Grid.Column="1" x:Name="FormatText" Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Size" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Size" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="2" Grid.Column="1" x:Name="SizeText" Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Duration" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Duration" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="3" Grid.Column="1" x:Name="DurationText" Text="…"
                        Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Margin="0,0,12,0" />
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,0" />
             <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ResolutionText" Text="…" />
         </Grid>
 
-        <Button Content="Close" HorizontalAlignment="Right" Margin="0,18,0,0"
-                Padding="14,4" IsCancel="True" IsDefault="True" />
+        <Button Content="Close" HorizontalAlignment="Right" Margin="0,20,0,0"
+                IsCancel="True" IsDefault="True" />
     </StackPanel>
 </Window>
