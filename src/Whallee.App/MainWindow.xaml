@@ -1,7 +1,7 @@
 <Window x:Class="Whallee.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Whallee" Height="700" Width="1100"
+        Title="Whallee" Height="700" Width="1100" MinHeight="480" MinWidth="820"
         WindowStartupLocation="CenterScreen"
         Style="{StaticResource AppWindowStyle}">
     <Grid>
@@ -11,15 +11,97 @@
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
-            <RowDefinition Height="120" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ListBox x:Name="PageSelector" Grid.Row="0" Margin="8" SelectedIndex="0"
-                 SelectionChanged="PageSelector_SelectionChanged">
-            <ListBoxItem Content="Library" />
-            <ListBoxItem Content="Settings" />
-        </ListBox>
-        <ContentControl x:Name="PageHost" Grid.Row="0" Grid.Column="1" Margin="8" />
-        <ListBox x:Name="LogView" Grid.Row="1" Grid.ColumnSpan="2" Margin="8"
-                 FontFamily="Consolas" FontSize="11" />
+
+        <!-- ========================= Nav rail ========================= -->
+        <Border Grid.Row="0" Grid.Column="0"
+                Background="{StaticResource SurfaceRaisedBrush}"
+                BorderBrush="{StaticResource StrokeBrush}"
+                BorderThickness="0,0,1,0">
+            <StackPanel>
+                <!-- The app's face. Without it the window opens cold, on a list. -->
+                <StackPanel Orientation="Horizontal" Margin="16,18,12,18">
+                    <Image Source="pack://application:,,,/Whallee.ico"
+                           Width="26" Height="26" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality" />
+                    <TextBlock Text="Whallee" FontSize="16" FontWeight="SemiBold"
+                               Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!--
+                    RadioButtons, not a ListBox: mutual exclusion comes free and there is no
+                    selected-index to keep in step with the page host. Both are wired in the
+                    constructor rather than here, so nothing fires while InitializeComponent is
+                    still walking the tree.
+                -->
+                <RadioButton x:Name="LibraryNav" GroupName="nav"
+                             Style="{StaticResource NavItemStyle}">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- A 2x2 grid of tiles: the library is a grid of clips. -->
+                        <Path Style="{StaticResource NavIconStyle}"
+                              Data="M 1,1 H 6 V 6 H 1 Z M 10,1 H 15 V 6 H 10 Z
+                                    M 1,10 H 6 V 15 H 1 Z M 10,10 H 15 V 15 H 10 Z" />
+                        <TextBlock Text="Library" Margin="12,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground,
+                                                        RelativeSource={RelativeSource AncestorType=RadioButton}}" />
+                    </StackPanel>
+                </RadioButton>
+
+                <RadioButton x:Name="SettingsNav" GroupName="nav"
+                             Style="{StaticResource NavItemStyle}">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Sliders. Reads as settings at 16px in a way a gear's teeth do not. -->
+                        <Path Style="{StaticResource NavIconStyle}"
+                              Data="M 1,4 H 14 M 1,12 H 14"
+                              StrokeThickness="1.5" />
+                        <Path Style="{StaticResource NavIconStyle}"
+                              Data="M 5,1.5 V 6.5 M 11,9.5 V 14.5"
+                              Margin="-16,0,0,0" />
+                        <TextBlock Text="Settings" Margin="12,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{Binding Foreground,
+                                                        RelativeSource={RelativeSource AncestorType=RadioButton}}" />
+                    </StackPanel>
+                </RadioButton>
+            </StackPanel>
+        </Border>
+
+        <ContentControl x:Name="PageHost" Grid.Row="0" Grid.Column="1" Margin="20,18,20,18" />
+
+        <!-- ========================= Status strip =========================
+
+             What used to be a permanent 120px Consolas console. The engine log still exists in
+             full - it is one click away, and every line of it is in whallee.log regardless. -->
+        <Border Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource StatusStripStyle}">
+            <StackPanel>
+                <Grid Margin="10,0,14,0" Height="30">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <ToggleButton x:Name="LogToggle" Grid.Column="0"
+                                  Style="{StaticResource LogToggleStyle}"
+                                  VerticalAlignment="Center" />
+
+                    <TextBlock x:Name="LatestMessage" Grid.Column="1"
+                               Margin="8,0,0,0" VerticalAlignment="Center"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="12" TextTrimming="CharacterEllipsis" />
+                </Grid>
+
+                <ScrollViewer x:Name="LogExpander" Height="150" Visibility="Collapsed"
+                              Margin="14,0,10,10" VerticalScrollBarVisibility="Auto">
+                    <!--
+                        An ItemsControl, NOT a ListBox. A log has no selection semantics, and the
+                        per-line hover and click highlight a ListBox gives it for free is a large
+                        part of why this pane read as a debugger. ItemsControl exposes ItemsSource
+                        just the same, so the binding in the constructor is unchanged.
+                    -->
+                    <ItemsControl x:Name="LogView" FontFamily="Consolas" FontSize="11"
+                                  Foreground="{StaticResource TextSecondaryBrush}" />
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>

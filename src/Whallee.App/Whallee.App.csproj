@@ -25,6 +25,15 @@
     -->
     <ApplicationIcon>Whallee.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The SAME .ico, additionally embedded as a WPF resource so the nav rail can show it via
+      pack://application:,,,/Whallee.ico. ApplicationIcon alone only stamps the exe's shell icon -
+      it puts nothing in the assembly that XAML can address.
+    -->
+    <Resource Include="Whallee.ico" />
+  </ItemGroup>
   <ItemGroup>
     <!-- PINNED. The 2.4.x line requires net10.0-windows and fails NU1202 here; measured. -->
     <PackageReference Include="H.NotifyIcon.Wpf" Version="2.3.0" />

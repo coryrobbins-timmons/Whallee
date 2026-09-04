@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Controls;
 
 namespace Whallee.App;
 
@@ -17,12 +16,54 @@ public partial class MainWindow : Window
         // of subscribing in code after InitializeComponent, never in markup.
         Interop.DarkTitleBar.Apply(this);
 
+        // SET BEFORE THE HANDLER IS SUBSCRIBED, deliberately. Checking a RadioButton raises
+        // Checked, and doing that from markup would fire it while InitializeComponent was still
+        // walking the tree - the exact defect ShowPage's null guard was written for. Setting it
+        // here, before there is a handler, means nothing fires at all and the initial page is
+        // drawn once, explicitly, below.
+        LibraryNav.IsChecked = true;
+
+        LibraryNav.Checked += (_, _) => ShowPage(0);
+        SettingsNav.Checked += (_, _) => ShowPage(1);
+        LogToggle.Checked += (_, _) => SetLogExpanded(true);
+        LogToggle.Unchecked += (_, _) => SetLogExpanded(false);
+
         ShowPage(0);
 
         // Bound after InitializeComponent, so the engine's start-up messages - queued while
         // App.OnStartup ran Engine.Start() before this window existed - appear as soon as the
         // collection is attached.
-        LogView.ItemsSource = ((App)Application.Current).Reporter.Messages;
+        var messages = ((App)Application.Current).Reporter.Messages;
+        LogView.ItemsSource = messages;
+        HookLatestMessage(messages);
+    }
+
+    /// <summary>
+    /// Keeps the collapsed strip showing the newest message.
+    /// </summary>
+    /// <remarks>
+    /// Tracked rather than bound because WPF has no "last item" binding. CollectionChanged arrives
+    /// on the UI thread here, because UiReporter only ever mutates the collection from inside a
+    /// Dispatcher callback - see its remarks for why that is not merely incidental.
+    /// </remarks>
+    private void HookLatestMessage(System.Collections.ObjectModel.ObservableCollection<string> messages)
+    {
+        messages.CollectionChanged += (_, _) =>
+        {
+            LatestMessage.Text = messages.Count > 0 ? messages[^1] : string.Empty;
+
+            // Only while the pane is actually open. An engine restart emits a burst of messages,
+            // and scrolling a collapsed ScrollViewer for every one of them is pure waste.
+            if (LogExpander.Visibility == Visibility.Visible) LogExpander.ScrollToEnd();
+        };
+
+        if (messages.Count > 0) LatestMessage.Text = messages[^1];
+    }
+
+    private void SetLogExpanded(bool expanded)
+    {
+        LogExpander.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        if (expanded) LogExpander.ScrollToEnd();
     }
 
     /// <summary>
@@ -44,16 +85,14 @@ public partial class MainWindow : Window
         base.OnClosing(e);
     }
 
-    private void PageSelector_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        ShowPage(PageSelector.SelectedIndex);
-
     // Both pages are built once and reused, so each gets a Refresh() on show.
     //
-    // PageHost is null-checked because SelectionChanged fires DURING InitializeComponent: the
-    // ListBox carries SelectedIndex="0" and raises the event from ItemsControl.EndInit, which
-    // runs before the ContentControl declared after it has been created and assigned. Guarding
-    // here rather than reordering the XAML keeps the fix independent of element order — the
-    // constructor's own ShowPage(0) draws the initial page once the tree is fully built.
+    // PageHost is still null-checked, though the defect that forced it is gone. It was written for
+    // a nav ListBox carrying SelectedIndex="0", which raised SelectionChanged from
+    // ItemsControl.EndInit - before the ContentControl declared after it existed. The rail no
+    // longer does that: nothing is subscribed until the constructor has run. The guard stays
+    // because it keeps this method independent of element order and of when a caller wires
+    // itself up, and removing it would trade nothing for a new way to crash.
     private void ShowPage(int index)
     {
         if (PageHost is null) return;

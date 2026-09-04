@@ -1,0 +1,270 @@
+<!--
+    Keyed styles for Whallee's OWN parts - the nav rail, the status strip, a clip card, a section
+    header, the one primary button. Nothing here targets a stock control implicitly; that is
+    Controls.xaml's job.
+
+    Tokens.xaml is merged here for the same reason Controls.xaml merges it: a StaticResource inside
+    a merged dictionary resolves against its own chain, never against a sibling merged alongside it.
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Tokens.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <!-- ===================================================================================
+         Nav rail item
+
+         A RadioButton, so mutual exclusion is free and there is no selected-index to keep. The
+         item's Content carries its own icon and label, so this style only supplies chrome and the
+         active indicator.
+         =================================================================================== -->
+
+    <Style x:Key="NavItemStyle" TargetType="RadioButton">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Grid Height="38">
+                        <Border x:Name="Chrome" Background="Transparent" CornerRadius="0,4,4,0"
+                                Margin="0,1" SnapsToDevicePixels="True" />
+                        <!-- The active marker. A left edge rather than a filled bar: it reads as
+                             "you are here" without repainting the whole row in accent. -->
+                        <Rectangle x:Name="Marker" Width="3" HorizontalAlignment="Left"
+                                   Margin="0,7" RadiusX="1.5" RadiusY="1.5"
+                                   Fill="Transparent" />
+                        <ContentPresenter Margin="16,0,12,0" VerticalAlignment="Center" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource TextPrimaryBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                            <Setter TargetName="Marker" Property="Fill"
+                                    Value="{StaticResource AccentBrush}" />
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource TextPrimaryBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        Nav icons are drawn as Paths, not glyphs from Segoe Fluent Icons.
+
+        The font is present on this machine, but a glyph reference is a magic codepoint that renders
+        as an empty box - silently - if it is wrong or the font is ever missing. Two shapes this
+        simple are not worth that failure mode.
+    -->
+    <Style x:Key="NavIconStyle" TargetType="Path">
+        <Setter Property="Stroke" Value="{Binding Foreground,
+                                                  RelativeSource={RelativeSource AncestorType=RadioButton}}" />
+        <Setter Property="StrokeThickness" Value="1.5" />
+        <Setter Property="StrokeEndLineCap" Value="Round" />
+        <Setter Property="StrokeStartLineCap" Value="Round" />
+        <Setter Property="StrokeLineJoin" Value="Round" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Width" Value="16" />
+        <Setter Property="Height" Value="16" />
+        <Setter Property="Stretch" Value="Uniform" />
+    </Style>
+
+    <!-- ===================================================================================
+         Status strip
+         =================================================================================== -->
+
+    <Style x:Key="StatusStripStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="0,1,0,0" />
+    </Style>
+
+    <!-- The chevron that opens the log. Chrome-free: it sits inside the strip, not on it. -->
+    <Style x:Key="LogToggleStyle" TargetType="ToggleButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="ToolTip" Value="Show or hide the engine log" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Chrome" Background="Transparent" Width="26" Height="22"
+                            CornerRadius="{StaticResource ControlRadius}">
+                        <Path x:Name="Chevron" Data="M 0,0 L 4,4 L 8,0"
+                              Stroke="{StaticResource TextSecondaryBrush}"
+                              StrokeThickness="1.4"
+                              StrokeEndLineCap="Round" StrokeStartLineCap="Round"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              RenderTransformOrigin="0.5,0.5" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                            <Setter TargetName="Chevron" Property="Stroke"
+                                    Value="{StaticResource TextPrimaryBrush}" />
+                        </Trigger>
+                        <!-- Rotated rather than swapped for a second glyph, so the two states are
+                             guaranteed to be the same shape pointing opposite ways.
+
+                             The whole RenderTransform is replaced rather than a named
+                             RotateTransform's Angle being set: a trigger's TargetName can only
+                             name an element in the template, and a transform is not one (MC4111). -->
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chevron" Property="RenderTransform">
+                                <Setter.Value>
+                                    <RotateTransform Angle="180" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================================================================================
+         Clip card
+         =================================================================================== -->
+
+    <Style x:Key="ClipCardStyle" TargetType="Button">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Card"
+                            Background="{StaticResource SurfaceRaisedBrush}"
+                            BorderBrush="{StaticResource StrokeBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource CardRadius}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <!-- The lift is the whole RenderTransform, not a named transform's Y: a
+                             trigger's TargetName can only name a template element, and a transform
+                             is not one (MC4111). -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Card" Property="BorderBrush"
+                                    Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="Card" Property="RenderTransform">
+                                <Setter.Value>
+                                    <TranslateTransform Y="-2" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Card" Property="BorderBrush"
+                                    Value="{StaticResource AccentBrush}" />
+                        </Trigger>
+                        <!-- Settles back down under the cursor, so the click has a physical feel.
+                             Listed after the hover trigger so it wins when both are true. -->
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Card" Property="RenderTransform">
+                                <Setter.Value>
+                                    <TranslateTransform Y="0" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================================================================================
+         Section header and primary button
+         =================================================================================== -->
+
+    <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+
+    <Style x:Key="CaptionStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style x:Key="CardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="Margin" Value="0,0,0,12" />
+    </Style>
+
+    <!--
+        Self-contained rather than BasedOn the implicit Button style, because that style lives in
+        Controls.xaml and has no key to reference from here.
+    -->
+    <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="14,6" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome"
+                            Background="{StaticResource AccentBrush}"
+                            CornerRadius="{StaticResource ControlRadius}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}"
+                                          RecognizesAccessKey="True" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource AccentHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource AccentPressedBrush}" />
+                        </Trigger>
+                        <!-- Disabled drops to a plain surface, not a dimmed amber. A washed-out
+                             accent still reads as "primary action" and invites the click that
+                             will not work. -->
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Chrome" Property="Background"
+                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                            <Setter Property="Foreground"
+                                    Value="{StaticResource TextDisabledBrush}" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>
