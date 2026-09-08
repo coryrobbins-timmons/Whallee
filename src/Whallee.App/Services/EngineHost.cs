@@ -117,10 +117,24 @@ public sealed class EngineHost : IDisposable
     public void SaveConfig() => ConfigStore.Save(Config, _configPath);
 
     /// <summary>Persists the current config and re-attaches. Used after the UI changes settings.</summary>
+    /// <remarks>
+    /// ApplyChange, NOT Restart, and the difference is visible. Restart stops every player before it
+    /// rebuilds, so the desktop drops to the Windows wallpaper for the length of the pass and each
+    /// monitor comes back in turn. ApplyChange brings the incoming generation up on top of the
+    /// outgoing one and retires the old one in a single step: no gap, and every display changes
+    /// together. It falls back to a full restart by itself whenever the overlap would not be safe,
+    /// so nothing here has to work that out.
+    ///
+    /// The Explorer-restart and display-change callbacks deliberately still call Restart. Both mean
+    /// the desktop layer itself has changed, which is the one thing the overlap cannot assume away.
+    /// </remarks>
     public void ApplyConfigChange()
     {
+        if (_engine is null) return;
+
         SaveConfig();
-        Restart();
+        _engine.ApplyChange();
+        ReportOutcome();
     }
 
     private void ReportOutcome()

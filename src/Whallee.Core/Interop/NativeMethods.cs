@@ -138,6 +138,13 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DestroyWindow(nint hWnd);
 
+    // No SetLastError: a false return means "that is not a window", which is the answer rather
+    // than a failure. Used to validate a CACHED WorkerW handle before reusing it — Explorer can
+    // restart between passes, and a stale handle would otherwise be handed to SetParent.
+    [DllImport(User32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindow(nint hWnd);
+
     [DllImport(User32, CharSet = CharSet.Unicode)]
     public static extern nint DefWindowProcW(nint hWnd, uint msg, nint wParam, nint lParam);
 

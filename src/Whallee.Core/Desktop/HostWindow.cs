@@ -60,6 +60,35 @@ public sealed class HostWindow : IDisposable
         return new HostWindow(handle);
     }
 
+    /// <summary>
+    /// Puts this window at the top of its siblings inside the desktop layer.
+    /// </summary>
+    /// <remarks>
+    /// EXISTS ONLY FOR THE OVERLAPPED SWAP, and it is what makes that swap visible at all.
+    /// <see cref="Attach"/>'s Classic branch deliberately passes SWP_NOZORDER, on the stated
+    /// reasoning that each display gets one non-overlapping window so sibling order cannot matter.
+    /// The swap breaks that assumption on purpose: for about a second the outgoing generation is
+    /// still parented into the same layer covering the same monitor, and the incoming video has to
+    /// be the one in front or the user sees no change at all.
+    ///
+    /// Passing 0 as insertAfter is HWND_TOP. Checked rather than ignored — a silent failure here is
+    /// a swap that appears to do nothing, which reads as a broken Apply button.
+    ///
+    /// Classic layout only. The RaisedDesktop branch places its windows at a deliberate z-order
+    /// relative to the icon layer, and HWND_TOP would put video in front of the desktop icons;
+    /// WallpaperEngine does not offer the swap in that layout for exactly this reason.
+    /// </remarks>
+    public void BringToFront()
+    {
+        if (!NativeMethods.SetWindowPos(
+                Handle, 0, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+        {
+            throw new InvalidOperationException(
+                $"SetWindowPos (bring to front) failed: {Marshal.GetLastWin32Error()}");
+        }
+    }
+
     private static void Attach(nint handle, DisplayInfo display, DesktopLayerInfo layer)
     {
         if (layer.Mode == DesktopLayerMode.RaisedDesktop)

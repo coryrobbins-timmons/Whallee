@@ -24,9 +24,19 @@ public static class DesktopLayer
         // them all (Restart()), so at this instant no SetParent attachment binds our input queue
         // to Explorer's. If a future change ever calls Locate() while host windows are attached,
         // this line becomes a 1 s freeze of the user's whole desktop — the fifth instance of the
-        // bug class this branch has already fought four times. SMTO_ABORTIFHUNG at least bounds
-        // it to "give up immediately" when Explorer is already hung, rather than waiting out the
-        // full timeout behind a shell that is never going to answer.
+        // bug class this branch has already fought four times.
+        //
+        // AMENDED 2026-09-08. WallpaperEngine.SwapOnce keeps the outgoing host windows alive on
+        // purpose while it builds their replacements, which is precisely the forbidden state. It
+        // therefore does not call Locate at all — it reuses the handle the last hard pass cached,
+        // having first checked with IsWindow that Explorer has not destroyed it. There is still
+        // exactly ONE call site in the codebase (StartOnce, immediately after StopAll). Keep it
+        // that way: if a path that already owns attached windows needs the desktop layer, cache
+        // it, do not look it up.
+        //
+        // SMTO_ABORTIFHUNG at least bounds it to "give up immediately" when Explorer is already
+        // hung, rather than waiting out the full timeout behind a shell that is never going to
+        // answer.
         NativeMethods.SendMessageTimeoutW(
             progman, WM_SPAWN_WORKER, 0xD, 0x1, SMTO_NORMAL | SMTO_ABORTIFHUNG, 1000, out _);
 

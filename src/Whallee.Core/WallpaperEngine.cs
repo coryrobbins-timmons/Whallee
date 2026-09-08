@@ -1,6 +1,7 @@
 using Whallee.Core.Configuration;
 using Whallee.Core.Desktop;
 using Whallee.Core.Displays;
+using Whallee.Core.Interop;
 using Whallee.Core.Playback;
 
 namespace Whallee.Core;
@@ -27,8 +28,32 @@ public sealed class WallpaperEngine : IDisposable
     /// <summary>Incremented on every start pass; keeps IPC pipe names unique across generations.</summary>
     private int _generation;
 
+    /// <summary>
+    /// The desktop layer the last successful pass attached to, or null if there has not been one.
+    /// </summary>
+    /// <remarks>
+    /// THIS CACHE IS WHAT MAKES THE OVERLAPPED SWAP POSSIBLE, and it is not an optimisation.
+    /// <see cref="DesktopLayer.Locate"/> sends a message to Explorer's desktop thread and blocks on
+    /// it for up to a second; its own remarks spell out that calling it while host windows are
+    /// attached converts that into a one-second freeze of the user's entire desktop — the fifth
+    /// instance of the bug class this codebase has already fought four times. The swap keeps the
+    /// outgoing windows alive on purpose, so it MUST NOT call Locate. It reuses this handle instead,
+    /// which is sound precisely because the swap only ever runs when nothing about Explorer has
+    /// changed: a clip or a scaling edit. Explorer restarts and display changes take the hard path,
+    /// which tears down first and re-locates, exactly as before.
+    /// </remarks>
+    private DesktopLayerInfo? _layer;
+
     private bool _restarting;
     private bool _restartPending;
+
+    /// <summary>Whether a pass queued during an in-flight pass needs the hard path.</summary>
+    /// <remarks>
+    /// Sticky across coalescing, deliberately. If an Explorer restart arrives while a clip swap is
+    /// running, the coalesced retry must re-locate the desktop layer — servicing it as another swap
+    /// would reuse a WorkerW handle that no longer exists.
+    /// </remarks>
+    private bool _pendingHard;
 
     /// <summary>Errors from the most recent start pass. A snapshot — the live list is not exposed.</summary>
     public IReadOnlyList<string> LastErrors => _errors.ToArray();
@@ -79,25 +104,63 @@ public sealed class WallpaperEngine : IDisposable
     /// Plain bools are correct: every caller is the pump thread, so this is single-threaded by
     /// construction. Do not add locks or Interlocked.
     /// </remarks>
-    public void Start()
+    public void Start() => Run(hard: true);
+
+    /// <summary>
+    /// Re-attaches after a CONFIG edit — a different clip, a different scaling mode — WITHOUT the
+    /// desktop dropping to the Windows wallpaper in between.
+    /// </summary>
+    /// <remarks>
+    /// The difference from <see cref="Start"/> is the order of teardown. Start stops everything and
+    /// then builds; this builds the new generation on top of the old one, lets it come up, and only
+    /// then retires the old. Since the outgoing video keeps playing underneath until the incoming
+    /// one is painting over it, there is no moment with nothing on the wallpaper — and because the
+    /// old generation is retired in one go at the end, every display changes together.
+    ///
+    /// FALLS BACK TO THE HARD PATH whenever the overlap is not safe: no cached layer, a cached
+    /// WorkerW that Explorer has since destroyed, or the RaisedDesktop layout, whose z-order is set
+    /// relative to the icon layer and has never run on any machine here. Callers do not choose —
+    /// they ask for a config change and this decides.
+    /// </remarks>
+    public void ApplyChange() => Run(hard: !CanSwapInPlace());
+
+    /// <summary>
+    /// Whether the overlapped swap is safe right now. Conservative on purpose — every "no" costs
+    /// only the flicker the app has always had, while a wrong "yes" is a stale window handle
+    /// handed to SetParent.
+    /// </summary>
+    private bool CanSwapInPlace() =>
+        _layer is { Mode: DesktopLayerMode.Classic } layer
+        && _active.Count > 0
+        && NativeMethods.IsWindow(layer.WorkerW);
+
+    private void Run(bool hard)
     {
         if (_restarting)
         {
             _restartPending = true;
+            _pendingHard |= hard;
             return;
         }
 
         _restarting = true;
         try
         {
+            var thisPassIsHard = hard;
             do
             {
                 // Cleared BEFORE the work, so an event arriving during this iteration is caught
                 // by the loop condition rather than by the iteration that already passed it.
                 _restartPending = false;
+                _pendingHard = false;
                 try
                 {
-                    StartOnce();
+                    // RE-CHECKED EVERY ITERATION, not just at entry. A coalesced pass can find the
+                    // world different from when it was queued: a hard pass whose Locate failed
+                    // clears the cached layer, and a swap queued before that would then run with
+                    // no layer at all.
+                    if (thisPassIsHard || !CanSwapInPlace()) StartOnce();
+                    else SwapOnce();
                 }
                 catch (Exception ex)
                 {
@@ -122,6 +185,11 @@ public sealed class WallpaperEngine : IDisposable
                         ? $"start attempt failed, a display change is queued so retrying: {ex.Message}"
                         : $"start attempt failed, giving up on this pass: {ex.Message}");
                 }
+
+                // Read BEFORE the loop condition clears it on the next iteration. A hard request
+                // that arrived mid-pass must win: servicing it as a swap would reuse a WorkerW
+                // handle Explorer has already destroyed.
+                thisPassIsHard = _pendingHard;
             }
             while (_restartPending);
         }
@@ -129,6 +197,7 @@ public sealed class WallpaperEngine : IDisposable
         {
             _restarting = false;
             _restartPending = false;
+            _pendingHard = false;
         }
     }
 
@@ -158,6 +227,16 @@ public sealed class WallpaperEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// The hard path: tear everything down, find the desktop layer, then build.
+    /// </summary>
+    /// <remarks>
+    /// StopAll comes FIRST and must stay first. <see cref="DesktopLayer.Locate"/> blocks on
+    /// Explorer's desktop thread, and doing that while any host window is still parented into
+    /// Explorer freezes the user's whole desktop for the duration — see the remarks on Locate
+    /// itself. The overlapped swap exists precisely so that the common case never has to come
+    /// through here; see <see cref="SwapOnce"/>.
+    /// </remarks>
     private void StartOnce()
     {
         StopAll();
@@ -167,10 +246,94 @@ public sealed class WallpaperEngine : IDisposable
         var layer = DesktopLayer.Locate();
         if (layer is null)
         {
+            // Cleared, not left stale: a WorkerW that cannot be found now must never be reused by
+            // a later swap.
+            _layer = null;
             _errors.Add("Could not find the desktop wallpaper layer (WorkerW).");
             return;
         }
 
+        _layer = layer;
+        BuildPlayers(layer);
+        VerifyPlayersStarted();
+    }
+
+    /// <summary>
+    /// The soft path: build the incoming generation ON TOP of the outgoing one, let it come up,
+    /// then retire the outgoing one in a single step.
+    /// </summary>
+    /// <remarks>
+    /// NO CALL TO <see cref="DesktopLayer.Locate"/> HERE, AND THERE MUST NEVER BE ONE. The whole
+    /// point of this path is that the outgoing host windows are still parented into Explorer while
+    /// it runs, and Locate blocks on Explorer's desktop thread — the combination is a one-second
+    /// freeze of the user's entire desktop. <see cref="CanSwapInPlace"/> is what earns the right to
+    /// reuse <see cref="_layer"/> instead: this path only ever runs for a config edit, where
+    /// nothing about Explorer has changed, and it re-checks the handle is still a window first.
+    ///
+    /// If the incoming generation comes up empty — every clip unplayable, say — the outgoing one is
+    /// put back rather than retired, so a bad Apply leaves the wallpaper as it was instead of
+    /// blanking it. Exactly one generation is live when this returns, either way; the two are never
+    /// both kept, which is what stops repeated failures stacking up players.
+    /// </remarks>
+    private void SwapOnce()
+    {
+        _errors.Clear();
+        _generation++;
+
+        var outgoingHosts = _hosts.ToList();
+        var outgoingActive = _active.ToList();
+
+        // The lists now describe the INCOMING generation only. The outgoing one is held in the
+        // locals above and is still on screen, still playing.
+        _hosts.Clear();
+        _active.Clear();
+
+        // TRUE UNTIL THE INCOMING GENERATION HAS EARNED THE SCREEN. If BuildPlayers throws — a
+        // display enumeration failing mid-hotplug, say — the finally must put the working wallpaper
+        // back, not retire it in favour of a half-built generation. Starting from false would blank
+        // the desktop on any unexpected throw.
+        var keepOutgoing = true;
+        try
+        {
+            BuildPlayers(_layer!);
+            VerifyPlayersStarted();
+            keepOutgoing = _active.Count == 0;
+        }
+        finally
+        {
+            if (keepOutgoing)
+            {
+                Retire(_hosts, _active);
+                _hosts.Clear();
+                _active.Clear();
+                _hosts.AddRange(outgoingHosts);
+                _active.AddRange(outgoingActive);
+            }
+            else
+            {
+                Retire(outgoingHosts, outgoingActive);
+            }
+        }
+    }
+
+    /// <summary>Kills one generation's players and destroys its windows. Players first.</summary>
+    /// <remarks>
+    /// Order matters: destroying a host window out from under a live mpv leaves it rendering into
+    /// a handle that no longer exists. <see cref="StopAll"/> does the same two steps in the same
+    /// order for the same reason.
+    /// </remarks>
+    private static void Retire(List<HostWindow> hosts, List<ActivePlayer> players)
+    {
+        foreach (var player in players) player.Player.Dispose();
+        foreach (var host in hosts) host.Dispose();
+    }
+
+    /// <summary>
+    /// Attaches one player per display into <paramref name="layer"/>. Shared by both paths — the
+    /// only difference between them is what happens before and after this runs.
+    /// </summary>
+    private void BuildPlayers(DesktopLayerInfo layer)
+    {
         // Listed ONCE per pass rather than once per display. This is Directory.EnumerateFiles over
         // a OneDrive-backed folder running on the pump thread, so three displays meant three
         // chances to block on a sync. ClipResolver's injected delegate is untouched — every
@@ -208,6 +371,15 @@ public sealed class WallpaperEngine : IDisposable
 
                 var host = HostWindow.CreateFor(display, layer);
                 _hosts.Add(host);
+
+                // In front of whatever else is in the layer. A no-op on the hard path, where this
+                // is the only window on the monitor; load-bearing on the swap path, where the
+                // outgoing generation is still sitting on the same monitor and would otherwise
+                // cover this one. Classic only — CanSwapInPlace refuses the swap in the raised
+                // layout precisely because HWND_TOP there would jump the desktop icons.
+                if (layer.Mode == DesktopLayerMode.Classic)
+                    host.BringToFront();
+
                 _active.Add(new ActivePlayer(display, clip, MpvHost.Start(
                     _config.MpvPath, host.Handle, clip, _config.Scaling,
                     PipeNameFor(ordinal), _guard)));
@@ -218,8 +390,6 @@ public sealed class WallpaperEngine : IDisposable
                 _errors.Add($"{display.DeviceName}: {ex.Message}");
             }
         }
-
-        VerifyPlayersStarted();
     }
 
     /// <summary>
