@@ -35,29 +35,30 @@ public partial class MainWindow : Window
         // collection is attached.
         var messages = ((App)Application.Current).Reporter.Messages;
         LogView.ItemsSource = messages;
-        HookLatestMessage(messages);
+        HookLogAutoScroll(messages);
     }
 
     /// <summary>
-    /// Keeps the collapsed strip showing the newest message.
+    /// Keeps the open log pane scrolled to the newest line.
     /// </summary>
     /// <remarks>
-    /// Tracked rather than bound because WPF has no "last item" binding. CollectionChanged arrives
-    /// on the UI thread here, because UiReporter only ever mutates the collection from inside a
-    /// Dispatcher callback - see its remarks for why that is not merely incidental.
+    /// NOTHING IS SURFACED WHILE THE PANE IS CLOSED, deliberately. An earlier version mirrored the
+    /// newest message into the strip, which put "Applying &lt;clip&gt; to all displays" across the
+    /// bottom of the window on every apply. Engine chatter is opt-in now: it exists in the pane and
+    /// in whallee.log, and nowhere else.
+    ///
+    /// CollectionChanged arrives on the UI thread because UiReporter only ever mutates the
+    /// collection from inside a Dispatcher callback - see its remarks for why that is not merely
+    /// incidental.
     /// </remarks>
-    private void HookLatestMessage(System.Collections.ObjectModel.ObservableCollection<string> messages)
+    private void HookLogAutoScroll(System.Collections.ObjectModel.ObservableCollection<string> messages)
     {
         messages.CollectionChanged += (_, _) =>
         {
-            LatestMessage.Text = messages.Count > 0 ? messages[^1] : string.Empty;
-
             // Only while the pane is actually open. An engine restart emits a burst of messages,
             // and scrolling a collapsed ScrollViewer for every one of them is pure waste.
             if (LogExpander.Visibility == Visibility.Visible) LogExpander.ScrollToEnd();
         };
-
-        if (messages.Count > 0) LatestMessage.Text = messages[^1];
     }
 
     private void SetLogExpanded(bool expanded)

@@ -1,16 +1,27 @@
 using System.Diagnostics;
 using Whallee.Core.Configuration;
-using Whallee.Core.Desktop;
 
 namespace Whallee.Core.Playback;
 
 public sealed class MpvHost : IDisposable
 {
     /// <summary>
-    /// With --wid, mpv renders into a window we already own and never creates one of its own,
-    /// so "wait for the child window" is not a usable health check. Staying alive is.
+    /// How long a freshly launched mpv must stay alive to be considered healthy.
     /// </summary>
-    private static readonly TimeSpan LivenessWindow = TimeSpan.FromSeconds(1);
+    /// <remarks>
+    /// With --wid, mpv renders into a window we already own and never creates one of its own, so
+    /// "wait for the child window" is not a usable health check. Staying alive is.
+    ///
+    /// SPENT ONCE PER START PASS, NOT ONCE PER DISPLAY. <see cref="Start"/> used to spend this
+    /// window itself, which serialised the whole pass: three displays meant three seconds, and each
+    /// monitor visibly lit up a second after the one before it. The wait belongs to
+    /// <c>WallpaperEngine.StartOnce</c> now, which launches every player first and then spends the
+    /// window once for all of them — so they appear together and a pass costs ~1 s, not ~N.
+    ///
+    /// Detection is not weakened by the move: every player is still checked after at least this
+    /// long, and the ones launched earliest simply get a longer window than they used to.
+    /// </remarks>
+    public static readonly TimeSpan LivenessWindow = TimeSpan.FromSeconds(1);
 
     private readonly Process _process;
     private bool _disposed;
@@ -23,6 +34,17 @@ public sealed class MpvHost : IDisposable
 
     public bool IsRunning => !_process.HasExited;
     public int ProcessId => _process.Id;
+
+    /// <summary>
+    /// Why this player died during start-up, or null if it is still running.
+    /// </summary>
+    /// <remarks>
+    /// Call once per pass, after <see cref="LivenessWindow"/> has been spent for the whole pass —
+    /// calling it immediately after <see cref="Start"/> would report healthy for everything,
+    /// because mpv has not had time to fail yet.
+    /// </remarks>
+    public string? StartupFailure(string videoPath) =>
+        _process.HasExited ? MpvExitReason.Describe(_process.ExitCode, videoPath) : null;
 
     /// <summary>
     /// The name this player's <c>--input-ipc-server</c> pipe was created under (without the
@@ -61,7 +83,8 @@ public sealed class MpvHost : IDisposable
         // included, and it survives until reboot painting on the user's desktop. The concrete
         // trigger is a truncated or 0-byte clip: mpv exits almost immediately, and if it exits
         // before AssignProcessToJobObject runs, that call fails and the caller gets
-        // "AssignProcessToJobObject failed: 6" instead of the informative message below.
+        // "AssignProcessToJobObject failed: 6" rather than the readable reason StartupFailure
+        // would have given it.
         try
         {
             guard.Assign(process);
@@ -69,17 +92,6 @@ public sealed class MpvHost : IDisposable
             // Drain the pipes so a full buffer can never block mpv.
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
-
-            if (MessagePump.WaitForExit(process, LivenessWindow))
-            {
-                var reason = process.ExitCode switch
-                {
-                    1 => "mpv failed to initialise",
-                    2 or 3 => "mpv could not play the file",
-                    _ => $"mpv exited with code {process.ExitCode}"
-                };
-                throw new InvalidOperationException($"{reason} ({videoPath})");
-            }
         }
         catch
         {

@@ -84,10 +84,17 @@
                                   Style="{StaticResource LogToggleStyle}"
                                   VerticalAlignment="Center" />
 
-                    <TextBlock x:Name="LatestMessage" Grid.Column="1"
+                    <!--
+                        A STATIC LABEL, NOT THE NEWEST MESSAGE. It used to mirror the latest engine
+                        line, which meant "Applying City Skyline.mp4 to all displays" flashed across
+                        the bottom of the window every time a clip was applied. The owner does not
+                        want engine chatter on screen unless it is asked for, so the log is behind
+                        the chevron and nothing leaks out of it.
+                    -->
+                    <TextBlock Grid.Column="1" Text="Engine log"
                                Margin="8,0,0,0" VerticalAlignment="Center"
                                Foreground="{StaticResource TextSecondaryBrush}"
-                               FontSize="12" TextTrimming="CharacterEllipsis" />
+                               FontSize="12" />
                 </Grid>
 
                 <ScrollViewer x:Name="LogExpander" Height="150" Visibility="Collapsed"

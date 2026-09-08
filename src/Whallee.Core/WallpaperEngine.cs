@@ -61,7 +61,8 @@ public sealed class WallpaperEngine : IDisposable
     /// </summary>
     /// <remarks>
     /// AMENDED 2026-08-27: re-entrancy is now guarded here, not only in <see cref="Restart"/>.
-    /// <see cref="Start"/> pumps messages for up to ~3 s (mpv's liveness wait does), so a
+    /// <see cref="Start"/> pumps messages for about a second (mpv's liveness wait does; it is one
+    /// window for the whole pass now, not one per display), so a
     /// <c>WM_DISPLAYCHANGE</c> can be dispatched while it is running. That was unreachable only by
     /// statement order in the harness — <c>Start()</c> was called before the watcher existed — and
     /// the natural order for Plan 2's tray app, watcher first, reopens it: the re-entrant call
@@ -217,6 +218,53 @@ public sealed class WallpaperEngine : IDisposable
                 _errors.Add($"{display.DeviceName}: {ex.Message}");
             }
         }
+
+        VerifyPlayersStarted();
+    }
+
+    /// <summary>
+    /// Spends mpv's liveness window ONCE for the whole pass, then drops any player that died in it.
+    /// </summary>
+    /// <remarks>
+    /// THIS IS WHY EVERY DISPLAY NOW LIGHTS UP TOGETHER. The wait used to live inside
+    /// <see cref="MpvHost.Start"/>, so the loop above blocked for a second on each display in turn:
+    /// three monitors meant a visible one-two-three cascade and a three-second pass. Launching every
+    /// player and then waiting once costs ~1 s however many displays there are.
+    ///
+    /// Detection is not weakened — every player is still checked after at least a full window, and
+    /// the earliest-launched ones now get a longer one than they used to.
+    ///
+    /// MessagePump.Sleep, never Thread.Sleep: this runs on a thread that owns windows parented into
+    /// Explorer's desktop, and a non-pumping wait here freezes the user's whole desktop.
+    /// </remarks>
+    private void VerifyPlayersStarted()
+    {
+        if (_active.Count == 0) return;
+
+        MessagePump.Sleep(MpvHost.LivenessWindow);
+
+        // Collected first, removed after: mutating _active while enumerating it would throw, and
+        // the failures are wanted in LastErrors either way.
+        var dead = new List<ActivePlayer>();
+        foreach (var active in _active)
+        {
+            var failure = active.Player.StartupFailure(active.ClipPath);
+            if (failure is null) continue;
+
+            _errors.Add($"{active.Display.DeviceName}: {failure}");
+            dead.Add(active);
+        }
+
+        foreach (var active in dead)
+        {
+            // Safe on an already-exited process, and it is what releases the Process handle.
+            active.Player.Dispose();
+            _active.Remove(active);
+        }
+
+        // A dead player's HostWindow is deliberately LEFT IN PLACE, exactly as it was before: it is
+        // an empty child window on the wallpaper layer, _hosts owns it, and StopAll destroys it on
+        // the next pass. Tearing a window down mid-pass on the thread that owns it buys nothing.
     }
 
     /// <summary>The IPC pipe name for one display in the current generation.</summary>
