@@ -26,11 +26,22 @@ public sealed class HostWindow : IDisposable
     {
         EnsureClassRegistered();
 
+        // CREATED HIDDEN - no WS_VISIBLE - AND THAT IS THE WHOLE POINT.
+        //
+        // This window paints nothing itself; its class brush is NULL. So between the moment it
+        // becomes visible and the moment mpv renders its first frame, it is a hole showing whatever
+        // its parent has behind it - which is Explorer's own desktop wallpaper. mpv needs a few
+        // hundred milliseconds to open a file and decode, so creating this visible produced a
+        // guaranteed flash of the user's Windows wallpaper on every single clip change, and one
+        // that arrived per monitor as each mpv warmed up at its own pace.
+        //
+        // Nothing is shown until WallpaperEngine has launched every player, waited out mpv's
+        // liveness window, and then called Reveal on all of them together.
         var handle = NativeMethods.CreateWindowExW(
             exStyle: WS_EX_TOOLWINDOW,          // keep it out of Alt+Tab and the taskbar
             className: ClassName,
             windowName: null,
-            style: WS_POPUP | WS_VISIBLE,
+            style: WS_POPUP,
             x: display.X, y: display.Y,
             width: display.Width, height: display.Height,
             parent: 0, menu: 0, instance: 0, param: 0);
@@ -48,11 +59,15 @@ public sealed class HostWindow : IDisposable
             // Attach can fail after the window exists. Nothing has wrapped this HWND yet, so no
             // Dispose will ever reach it — and by this point the Classic path has already flipped
             // WS_POPUP to WS_CHILD, so a SetParent failure (a stale WorkerW handle after Explorer
-            // restarted mid-Restart, say) leaves a visible full-screen window with a NULL class
-            // brush and no WS_EX_TRANSPARENT: it paints nothing and swallows every mouse click on
-            // that monitor for the rest of the session. WallpaperEngine catches per display and
-            // keeps running, so nothing else would ever clean it up. Destroy it before letting the
-            // failure out.
+            // restarted mid-Restart, say) leaves a full-screen window with a NULL class brush and
+            // no WS_EX_TRANSPARENT stranded on that monitor for the rest of the session.
+            // WallpaperEngine catches per display and keeps running, so nothing else would ever
+            // clean it up. Destroy it before letting the failure out.
+            //
+            // Since 2026-09-08 the window is created hidden and only Reveal shows it, so a window
+            // stranded here is invisible rather than a click-swallowing black hole. That makes this
+            // less severe; it does NOT make it optional. An orphaned HWND is still a leak, and the
+            // hidden-by-default rule is one edit away from being changed back.
             NativeMethods.DestroyWindow(handle);
             throw;
         }
@@ -61,31 +76,37 @@ public sealed class HostWindow : IDisposable
     }
 
     /// <summary>
-    /// Puts this window at the top of its siblings inside the desktop layer.
+    /// Makes this window visible, having been created hidden — and, in the Classic layout, puts it
+    /// in front of its siblings at the same time.
     /// </summary>
-    /// <remarks>
-    /// EXISTS ONLY FOR THE OVERLAPPED SWAP, and it is what makes that swap visible at all.
-    /// <see cref="Attach"/>'s Classic branch deliberately passes SWP_NOZORDER, on the stated
-    /// reasoning that each display gets one non-overlapping window so sibling order cannot matter.
-    /// The swap breaks that assumption on purpose: for about a second the outgoing generation is
-    /// still parented into the same layer covering the same monitor, and the incoming video has to
-    /// be the one in front or the user sees no change at all.
-    ///
-    /// Passing 0 as insertAfter is HWND_TOP. Checked rather than ignored — a silent failure here is
-    /// a swap that appears to do nothing, which reads as a broken Apply button.
-    ///
+    /// <param name="bringToFront">
     /// Classic layout only. The RaisedDesktop branch places its windows at a deliberate z-order
-    /// relative to the icon layer, and HWND_TOP would put video in front of the desktop icons;
-    /// WallpaperEngine does not offer the swap in that layout for exactly this reason.
+    /// relative to the icon layer, and HWND_TOP there would put video in front of the desktop
+    /// icons.
+    /// </param>
+    /// <remarks>
+    /// CALLED ONLY AFTER mpv HAS HAD TIME TO RENDER. Showing this window earlier shows Explorer's
+    /// wallpaper through it — see the remarks in <see cref="CreateFor"/>. WallpaperEngine reveals
+    /// every host of a pass in one loop, which is also what makes all the monitors change together
+    /// rather than each one appearing as its own player warms up.
+    ///
+    /// The front half matters for the swap: <see cref="Attach"/>'s Classic branch passes
+    /// SWP_NOZORDER on the stated reasoning that each display gets one non-overlapping window, and
+    /// the swap breaks that assumption on purpose — the outgoing generation is still parented into
+    /// the same layer over the same monitor, so the incoming window has to end up in front.
+    ///
+    /// Passing 0 as insertAfter is HWND_TOP. Checked rather than ignored: a silent failure here is
+    /// a wallpaper that never appears, or a swap that looks like a broken Apply button.
     /// </remarks>
-    public void BringToFront()
+    public void Reveal(bool bringToFront)
     {
-        if (!NativeMethods.SetWindowPos(
-                Handle, 0, 0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+        var flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW;
+        if (!bringToFront) flags |= SWP_NOZORDER;
+
+        if (!NativeMethods.SetWindowPos(Handle, 0, 0, 0, 0, 0, flags))
         {
             throw new InvalidOperationException(
-                $"SetWindowPos (bring to front) failed: {Marshal.GetLastWin32Error()}");
+                $"SetWindowPos (reveal) failed: {Marshal.GetLastWin32Error()}");
         }
     }
 

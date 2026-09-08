@@ -17,6 +17,9 @@ internal static class NativeConstants
     public const uint SWP_NOSIZE      = 0x0001;
     public const uint SWP_NOMOVE      = 0x0002;
     public const uint SWP_NOZORDER    = 0x0004;
+    // Host windows are created HIDDEN and shown only once mpv has had time to render into them;
+    // this is the flag that shows them. See HostWindow.Reveal.
+    public const uint SWP_SHOWWINDOW  = 0x0040;
     public const uint SMTO_NORMAL     = 0x0000;
     // Never send to the desktop layer without this: it makes SendMessageTimeoutW give up
     // immediately if Explorer is already hung, instead of blocking out the full timeout.

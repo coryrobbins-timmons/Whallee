@@ -256,6 +256,43 @@ public sealed class WallpaperEngine : IDisposable
         _layer = layer;
         BuildPlayers(layer);
         VerifyPlayersStarted();
+        RevealPlayers();
+    }
+
+    /// <summary>
+    /// Shows this pass's host windows, all of them, in one loop.
+    /// </summary>
+    /// <remarks>
+    /// THIS IS WHERE THE WALLPAPER ACTUALLY APPEARS, and doing it here rather than at window
+    /// creation is what fixed two visible defects at once.
+    ///
+    /// A host window paints nothing of its own — its class brush is NULL — so while it is visible
+    /// and mpv has not yet rendered, it shows Explorer's desktop wallpaper straight through. Windows
+    /// used to be created visible, which meant every clip change flashed the user's Windows
+    /// wallpaper for as long as mpv took to decode its first frame, and did so per monitor as each
+    /// player warmed up at its own pace. Creating them hidden and revealing them together after the
+    /// liveness window removes the flash and makes the monitors change as one.
+    ///
+    /// A reveal that fails is recorded and skipped rather than thrown: one monitor that will not
+    /// show must not cost the others theirs.
+    /// </remarks>
+    private void RevealPlayers()
+    {
+        // Only the Classic layout re-orders on reveal. The raised layout's z-order was set against
+        // the icon layer at attach time and HWND_TOP would jump the desktop icons.
+        var bringToFront = _layer is { Mode: DesktopLayerMode.Classic };
+
+        foreach (var host in _hosts)
+        {
+            try
+            {
+                host.Reveal(bringToFront);
+            }
+            catch (Exception ex)
+            {
+                _errors.Add($"could not show a host window: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>
@@ -298,6 +335,14 @@ public sealed class WallpaperEngine : IDisposable
             BuildPlayers(_layer!);
             VerifyPlayersStarted();
             keepOutgoing = _active.Count == 0;
+
+            // REVEALED BEFORE THE OUTGOING GENERATION IS RETIRED, in the try rather than after it,
+            // so the new video is already on screen and in front when the old windows go. That
+            // ordering is the entire no-gap guarantee.
+            //
+            // Skipped when nothing survived: revealing a set of empty windows over a working
+            // wallpaper would replace it with Explorer's, which is the defect this exists to stop.
+            if (!keepOutgoing) RevealPlayers();
         }
         finally
         {
@@ -369,16 +414,10 @@ public sealed class WallpaperEngine : IDisposable
                     continue;
                 }
 
+                // HIDDEN until RevealPlayers. It paints nothing until mpv is rendering into it, and
+                // an empty window is a hole showing Explorer's wallpaper.
                 var host = HostWindow.CreateFor(display, layer);
                 _hosts.Add(host);
-
-                // In front of whatever else is in the layer. A no-op on the hard path, where this
-                // is the only window on the monitor; load-bearing on the swap path, where the
-                // outgoing generation is still sitting on the same monitor and would otherwise
-                // cover this one. Classic only — CanSwapInPlace refuses the swap in the raised
-                // layout precisely because HWND_TOP there would jump the desktop icons.
-                if (layer.Mode == DesktopLayerMode.Classic)
-                    host.BringToFront();
 
                 _active.Add(new ActivePlayer(display, clip, MpvHost.Start(
                     _config.MpvPath, host.Handle, clip, _config.Scaling,
