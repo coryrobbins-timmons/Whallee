@@ -25,47 +25,18 @@ public partial class MainWindow : Window
 
         LibraryNav.Checked += (_, _) => ShowPage(0);
         SettingsNav.Checked += (_, _) => ShowPage(1);
-        LogToggle.Checked += (_, _) => SetLogExpanded(true);
-        LogToggle.Unchecked += (_, _) => SetLogExpanded(false);
 
         ShowPage(0);
-
-        // Bound after InitializeComponent, so the engine's start-up messages - queued while
-        // App.OnStartup ran Engine.Start() before this window existed - appear as soon as the
-        // collection is attached.
-        var messages = ((App)Application.Current).Reporter.Messages;
-        LogView.ItemsSource = messages;
-        HookLogAutoScroll(messages);
     }
 
-    /// <summary>
-    /// Keeps the open log pane scrolled to the newest line.
-    /// </summary>
-    /// <remarks>
-    /// NOTHING IS SURFACED WHILE THE PANE IS CLOSED, deliberately. An earlier version mirrored the
-    /// newest message into the strip, which put "Applying &lt;clip&gt; to all displays" across the
-    /// bottom of the window on every apply. Engine chatter is opt-in now: it exists in the pane and
-    /// in whallee.log, and nowhere else.
-    ///
-    /// CollectionChanged arrives on the UI thread because UiReporter only ever mutates the
-    /// collection from inside a Dispatcher callback - see its remarks for why that is not merely
-    /// incidental.
-    /// </remarks>
-    private void HookLogAutoScroll(System.Collections.ObjectModel.ObservableCollection<string> messages)
-    {
-        messages.CollectionChanged += (_, _) =>
-        {
-            // Only while the pane is actually open. An engine restart emits a burst of messages,
-            // and scrolling a collapsed ScrollViewer for every one of them is pure waste.
-            if (LogExpander.Visibility == Visibility.Visible) LogExpander.ScrollToEnd();
-        };
-    }
-
-    private void SetLogExpanded(bool expanded)
-    {
-        LogExpander.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
-        if (expanded) LogExpander.ScrollToEnd();
-    }
+    // THERE IS NO LOG IN THIS WINDOW, on the owner's instruction (2026-09-08). It was a permanent
+    // 120px Consolas console, then a collapsible strip, and both were more of the engine's internal
+    // conversation than anyone wants on screen.
+    //
+    // Nothing was lost from the record: UiReporter still writes every line to
+    // %LOCALAPPDATA%\Whallee\whallee.log, and Settings > About still shows that path. The
+    // ObservableCollection it also fills is simply no longer displayed - it is capped at 200
+    // entries, so leaving it unbound costs nothing.
 
     /// <summary>
     /// Closing hides to tray; the tray's Exit is the only way out. Wallpapers are meant to keep

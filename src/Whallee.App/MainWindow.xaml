@@ -9,22 +9,29 @@
             <ColumnDefinition Width="180" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
         <!-- ========================= Nav rail ========================= -->
-        <Border Grid.Row="0" Grid.Column="0"
+        <Border Grid.Column="0"
                 Background="{StaticResource SurfaceRaisedBrush}"
                 BorderBrush="{StaticResource StrokeBrush}"
                 BorderThickness="0,0,1,0">
             <StackPanel>
                 <!-- The app's face. Without it the window opens cold, on a list. -->
                 <StackPanel Orientation="Horizontal" Margin="16,18,12,18">
-                    <Image Source="pack://application:,,,/Whallee.ico"
-                           Width="26" Height="26" VerticalAlignment="Center"
-                           RenderOptions.BitmapScalingMode="HighQuality" />
+                    <!--
+                        DecodePixelWidth IS WHAT MAKES THIS SHARP, and it is not optional.
+                        Whallee.ico carries nine frames and the smallest is FIRST (16x16); a plain
+                        Source= hands WPF frame 0, which then gets scaled UP to 26 and looks like
+                        mud. Asking for 64 makes the icon decoder pick the 64x64 frame, which is
+                        then scaled DOWN - and stays sharp at 150% DPI, where 26 DIP is 39 real
+                        pixels.
+                    -->
+                    <Image Width="26" Height="26" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Source>
+                            <BitmapImage UriSource="pack://application:,,,/Whallee.ico"
+                                         DecodePixelWidth="64" />
+                        </Image.Source>
+                    </Image>
                     <TextBlock Text="Whallee" FontSize="16" FontWeight="SemiBold"
                                Margin="10,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>
@@ -66,49 +73,7 @@
             </StackPanel>
         </Border>
 
-        <ContentControl x:Name="PageHost" Grid.Row="0" Grid.Column="1" Margin="20,18,20,18" />
+        <ContentControl x:Name="PageHost" Grid.Column="1" Margin="20,18,20,18" />
 
-        <!-- ========================= Status strip =========================
-
-             What used to be a permanent 120px Consolas console. The engine log still exists in
-             full - it is one click away, and every line of it is in whallee.log regardless. -->
-        <Border Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource StatusStripStyle}">
-            <StackPanel>
-                <Grid Margin="10,0,14,0" Height="30">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-
-                    <ToggleButton x:Name="LogToggle" Grid.Column="0"
-                                  Style="{StaticResource LogToggleStyle}"
-                                  VerticalAlignment="Center" />
-
-                    <!--
-                        A STATIC LABEL, NOT THE NEWEST MESSAGE. It used to mirror the latest engine
-                        line, which meant "Applying City Skyline.mp4 to all displays" flashed across
-                        the bottom of the window every time a clip was applied. The owner does not
-                        want engine chatter on screen unless it is asked for, so the log is behind
-                        the chevron and nothing leaks out of it.
-                    -->
-                    <TextBlock Grid.Column="1" Text="Engine log"
-                               Margin="8,0,0,0" VerticalAlignment="Center"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               FontSize="12" />
-                </Grid>
-
-                <ScrollViewer x:Name="LogExpander" Height="150" Visibility="Collapsed"
-                              Margin="14,0,10,10" VerticalScrollBarVisibility="Auto">
-                    <!--
-                        An ItemsControl, NOT a ListBox. A log has no selection semantics, and the
-                        per-line hover and click highlight a ListBox gives it for free is a large
-                        part of why this pane read as a debugger. ItemsControl exposes ItemsSource
-                        just the same, so the binding in the constructor is unchanged.
-                    -->
-                    <ItemsControl x:Name="LogView" FontFamily="Consolas" FontSize="11"
-                                  Foreground="{StaticResource TextSecondaryBrush}" />
-                </ScrollViewer>
-            </StackPanel>
-        </Border>
     </Grid>
 </Window>

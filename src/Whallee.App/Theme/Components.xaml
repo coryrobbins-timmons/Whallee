@@ -1,6 +1,6 @@
 <!--
-    Keyed styles for Whallee's OWN parts - the nav rail, the status strip, a clip card, a section
-    header, the one primary button. Nothing here targets a stock control implicitly; that is
+    Keyed styles for Whallee's OWN parts - the nav rail, a clip card, a section header, the one
+    primary button. Nothing here targets a stock control implicitly; that is
     Controls.xaml's job.
 
     Tokens.xaml is merged here for the same reason Controls.xaml merges it: a StaticResource inside
@@ -84,60 +84,6 @@
         <Setter Property="Width" Value="16" />
         <Setter Property="Height" Value="16" />
         <Setter Property="Stretch" Value="Uniform" />
-    </Style>
-
-    <!-- ===================================================================================
-         Status strip
-         =================================================================================== -->
-
-    <Style x:Key="StatusStripStyle" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
-        <Setter Property="BorderThickness" Value="0,1,0,0" />
-    </Style>
-
-    <!-- The chevron that opens the log. Chrome-free: it sits inside the strip, not on it. -->
-    <Style x:Key="LogToggleStyle" TargetType="ToggleButton">
-        <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="Focusable" Value="False" />
-        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-        <Setter Property="ToolTip" Value="Show or hide the engine log" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ToggleButton">
-                    <Border x:Name="Chrome" Background="Transparent" Width="26" Height="22"
-                            CornerRadius="{StaticResource ControlRadius}">
-                        <Path x:Name="Chevron" Data="M 0,0 L 4,4 L 8,0"
-                              Stroke="{StaticResource TextSecondaryBrush}"
-                              StrokeThickness="1.4"
-                              StrokeEndLineCap="Round" StrokeStartLineCap="Round"
-                              HorizontalAlignment="Center" VerticalAlignment="Center"
-                              RenderTransformOrigin="0.5,0.5" />
-                    </Border>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource SurfaceOverlayBrush}" />
-                            <Setter TargetName="Chevron" Property="Stroke"
-                                    Value="{StaticResource TextPrimaryBrush}" />
-                        </Trigger>
-                        <!-- Rotated rather than swapped for a second glyph, so the two states are
-                             guaranteed to be the same shape pointing opposite ways.
-
-                             The whole RenderTransform is replaced rather than a named
-                             RotateTransform's Angle being set: a trigger's TargetName can only
-                             name an element in the template, and a transform is not one (MC4111). -->
-                        <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Chevron" Property="RenderTransform">
-                                <Setter.Value>
-                                    <RotateTransform Angle="180" />
-                                </Setter.Value>
-                            </Setter>
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
     </Style>
 
     <!-- ===================================================================================
