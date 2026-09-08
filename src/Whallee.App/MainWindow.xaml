@@ -18,20 +18,19 @@
                 <!-- The app's face. Without it the window opens cold, on a list. -->
                 <StackPanel Orientation="Horizontal" Margin="16,18,12,18">
                     <!--
-                        DecodePixelWidth IS WHAT MAKES THIS SHARP, and it is not optional.
-                        Whallee.ico carries nine frames and the smallest is FIRST (16x16); a plain
-                        Source= hands WPF frame 0, which then gets scaled UP to 26 and looks like
-                        mud. Asking for 64 makes the icon decoder pick the 64x64 frame, which is
-                        then scaled DOWN - and stays sharp at 150% DPI, where 26 DIP is 39 real
-                        pixels.
+                        THE PNG, NOT Whallee.ico. The .ico carries nine frames with the smallest
+                        first, WPF hands out frame 0 (16x16), and DecodePixelWidth did not move it
+                        off that frame - the icon stayed a 16px image stretched to 26 and looked
+                        like mud. This is the 430px source the .ico was generated from: one frame,
+                        no ambiguity, and enough resolution to stay sharp at 150% DPI where 26 DIP
+                        is 39 real pixels.
+
+                        Whallee.ico is still the ApplicationIcon and still what the taskbar, the
+                        tray and the shortcuts use. This is only the in-window copy.
                     -->
-                    <Image Width="26" Height="26" VerticalAlignment="Center"
-                           RenderOptions.BitmapScalingMode="HighQuality">
-                        <Image.Source>
-                            <BitmapImage UriSource="pack://application:,,,/Whallee.ico"
-                                         DecodePixelWidth="64" />
-                        </Image.Source>
-                    </Image>
+                    <Image Source="pack://application:,,,/Whallee-icon-source.png"
+                           Width="26" Height="26" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality" />
                     <TextBlock Text="Whallee" FontSize="16" FontWeight="SemiBold"
                                Margin="10,0,0,0" VerticalAlignment="Center" />
                 </StackPanel>

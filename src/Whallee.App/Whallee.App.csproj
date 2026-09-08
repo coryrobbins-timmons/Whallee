@@ -33,6 +33,15 @@
       it puts nothing in the assembly that XAML can address.
     -->
     <Resource Include="Whallee.ico" />
+
+    <!--
+      The 430px PNG the .ico was generated from, embedded so the nav rail can show a crisp icon.
+      The .ico was tried first and does not work for this: it carries nine frames with the SMALLEST
+      first, WPF hands out frame 0 (16x16), and DecodePixelWidth did not persuade the icon decoder
+      to pick a different one - it still scaled 16px UP to 26 and looked like mud. A PNG has one
+      frame and no ambiguity.
+    -->
+    <Resource Include="Whallee-icon-source.png" />
   </ItemGroup>
   <ItemGroup>
     <!-- PINNED. The 2.4.x line requires net10.0-windows and fails NU1202 here; measured. -->
