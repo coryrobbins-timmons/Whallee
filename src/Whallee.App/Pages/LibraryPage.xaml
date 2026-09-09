@@ -9,6 +9,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -22,7 +23,33 @@
                     Click="AddFromUrl_Click" />
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">
+        <!--
+            IMPORT PROGRESS. Collapsed unless an import is running.
+
+            A YouTube import launches yt-dlp, downloads, then trims - several seconds during which
+            the only feedback used to be the Add-from-URL button going grey. The importer already
+            reported "96 MiB fetched…" through IProgress; that just had nowhere to appear once the
+            log pane was removed, so this is where it appears now.
+
+            The bar is indeterminate because the importer reports MiB fetched with no total to
+            divide by - the real progress signal is the text, and the bar is there to say "still
+            working" while the number is between updates.
+        -->
+        <Border x:Name="ImportStatus" Grid.Row="1" Visibility="Collapsed"
+                Background="{StaticResource SurfaceRaisedBrush}"
+                BorderBrush="{StaticResource StrokeBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource CardRadius}"
+                Padding="14,10" Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock x:Name="ImportStatusText" Text="Working…"
+                           Foreground="{StaticResource TextPrimaryBrush}"
+                           TextTrimming="CharacterEllipsis" />
+                <ProgressBar IsIndeterminate="True" Margin="0,10,0,0" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">
             <ItemsControl x:Name="TileHost">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>

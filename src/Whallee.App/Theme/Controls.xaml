@@ -701,6 +701,23 @@
     </Style>
 
     <!-- ===================================================================================
+         ProgressBar
+
+         NOT retemplated, deliberately. The stock template already carries the indeterminate
+         animation, and it draws that animation with the Foreground brush - so recolouring is
+         enough, and hand-rolling a storyboard here would be a lot of moving parts to reproduce
+         something that already works.
+         =================================================================================== -->
+
+    <Style TargetType="ProgressBar">
+        <Setter Property="Background" Value="{StaticResource SurfaceOverlayBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Height" Value="3" />
+    </Style>
+
+    <!-- ===================================================================================
          ToolTip
          =================================================================================== -->
 

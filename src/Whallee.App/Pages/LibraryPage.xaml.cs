@@ -155,9 +155,19 @@ public partial class LibraryPage : UserControl
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
             AddFromUrl.IsEnabled = false;
+            ShowImportStatus("Starting the download…");
             try
             {
-                var progress = new Progress<string>(m => _reporter.Report(m));
+                // Progress<T> raises its callback on the SynchronizationContext captured where it
+                // was constructed - the UI thread, here - so touching ImportStatusText from it is
+                // correct and needs no Dispatcher hop. Still reported to the log too: the log keeps
+                // the whole sequence, the strip shows only the newest line.
+                var progress = new Progress<string>(m =>
+                {
+                    _reporter.Report(m);
+                    ImportStatusText.Text = m;
+                });
+
                 var outcome = await _model.ImportFromUrlAsync(dialog.Result, progress);
 
                 if (!outcome.Success)
@@ -185,6 +195,10 @@ public partial class LibraryPage : UserControl
             }
             finally
             {
+                // Hidden in the finally, not after the success path: an import that fails, is
+                // cancelled, or throws must not leave a progress bar spinning forever over a
+                // library that is not importing anything.
+                HideImportStatus();
                 AddFromUrl.IsEnabled = true;
             }
         }
@@ -193,6 +207,14 @@ public partial class LibraryPage : UserControl
             _reporter.Report($"could not import that link: {ex.Message}");
         }
     }
+
+    private void ShowImportStatus(string message)
+    {
+        ImportStatusText.Text = message;
+        ImportStatus.Visibility = Visibility.Visible;
+    }
+
+    private void HideImportStatus() => ImportStatus.Visibility = Visibility.Collapsed;
 
     /// <summary>
     /// Fills the tile's (empty) ContextMenu just before it opens.

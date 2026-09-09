@@ -59,6 +59,15 @@ public sealed class WallpaperEngine : IDisposable
     public IReadOnlyList<string> LastErrors => _errors.ToArray();
 
     /// <summary>
+    /// Stage timings for the most recent pass, or null before the first one. See
+    /// <see cref="PassProfile"/> for why this is measured rather than reasoned about.
+    /// </summary>
+    public string? LastPassProfile { get; private set; }
+
+    /// <summary>The pass currently being timed. Null outside a pass.</summary>
+    private PassProfile? _profile;
+
+    /// <summary>
     /// Which clip and which player are on which display right now. A snapshot; each entry carries
     /// the player, so <c>ActivePlayers[i].Player.PipeName</c> is how Plan 2 finds a display's IPC
     /// pipe without restarting anything.
@@ -239,24 +248,31 @@ public sealed class WallpaperEngine : IDisposable
     /// </remarks>
     private void StartOnce()
     {
-        StopAll();
+        _profile = new PassProfile();
         _errors.Clear();
+
+        _profile.Measure("stopAll", StopAll);
         _generation++;
 
-        var layer = DesktopLayer.Locate();
+        DesktopLayerInfo? layer = null;
+        _profile.Measure("locate", () => layer = DesktopLayer.Locate());
+
         if (layer is null)
         {
             // Cleared, not left stale: a WorkerW that cannot be found now must never be reused by
             // a later swap.
             _layer = null;
             _errors.Add("Could not find the desktop wallpaper layer (WorkerW).");
+            LastPassProfile = _profile.Describe("start (no layer)");
             return;
         }
 
         _layer = layer;
         BuildPlayers(layer);
         VerifyPlayersStarted();
-        RevealPlayers();
+        _profile.Measure("reveal", RevealPlayers);
+
+        LastPassProfile = _profile.Describe("start");
     }
 
     /// <summary>
@@ -314,6 +330,7 @@ public sealed class WallpaperEngine : IDisposable
     /// </remarks>
     private void SwapOnce()
     {
+        _profile = new PassProfile();
         _errors.Clear();
         _generation++;
 
@@ -342,22 +359,27 @@ public sealed class WallpaperEngine : IDisposable
             //
             // Skipped when nothing survived: revealing a set of empty windows over a working
             // wallpaper would replace it with Explorer's, which is the defect this exists to stop.
-            if (!keepOutgoing) RevealPlayers();
+            if (!keepOutgoing) _profile.Measure("reveal", RevealPlayers);
         }
         finally
         {
-            if (keepOutgoing)
+            _profile.Measure("retire", () =>
             {
-                Retire(_hosts, _active);
-                _hosts.Clear();
-                _active.Clear();
-                _hosts.AddRange(outgoingHosts);
-                _active.AddRange(outgoingActive);
-            }
-            else
-            {
-                Retire(outgoingHosts, outgoingActive);
-            }
+                if (keepOutgoing)
+                {
+                    Retire(_hosts, _active);
+                    _hosts.Clear();
+                    _active.Clear();
+                    _hosts.AddRange(outgoingHosts);
+                    _active.AddRange(outgoingActive);
+                }
+                else
+                {
+                    Retire(outgoingHosts, outgoingActive);
+                }
+            });
+
+            LastPassProfile = _profile.Describe(keepOutgoing ? "swap (rolled back)" : "swap");
         }
     }
 
@@ -383,19 +405,27 @@ public sealed class WallpaperEngine : IDisposable
         // a OneDrive-backed folder running on the pump thread, so three displays meant three
         // chances to block on a sync. ClipResolver's injected delegate is untouched — every
         // display simply gets the same materialised snapshot.
-        IReadOnlyList<string> libraryFiles;
-        try
+        IReadOnlyList<string> libraryFiles = Array.Empty<string>();
+        Exception? listFailure = null;
+        _profile!.Measure("listLibrary", () =>
         {
-            libraryFiles = _listFiles(_config.LibraryFolder);
-        }
-        catch (Exception ex)
+            try { libraryFiles = _listFiles(_config.LibraryFolder); }
+            catch (Exception ex) { listFailure = ex; }
+        });
+
+        if (listFailure is not null)
         {
-            _errors.Add($"could not list {_config.LibraryFolder}: {ex.Message}");
+            _errors.Add($"could not list {_config.LibraryFolder}: {listFailure.Message}");
             return;
         }
 
         var resolver = new ClipResolver(_ => libraryFiles, _random);
-        var displays = DisplayEnumerator.Enumerate();
+
+        var displays = System.Array.Empty<DisplayInfo>() as IReadOnlyList<DisplayInfo>;
+        _profile.Measure("enumDisplays", () => displays = DisplayEnumerator.Enumerate());
+
+        var windowsMs = 0L;
+        var mpvMs = 0L;
 
         for (var ordinal = 0; ordinal < displays.Count; ordinal++)
         {
@@ -416,12 +446,21 @@ public sealed class WallpaperEngine : IDisposable
 
                 // HIDDEN until RevealPlayers. It paints nothing until mpv is rendering into it, and
                 // an empty window is a hole showing Explorer's wallpaper.
+                var windowWatch = System.Diagnostics.Stopwatch.StartNew();
                 var host = HostWindow.CreateFor(display, layer);
+                windowsMs += windowWatch.ElapsedMilliseconds;
                 _hosts.Add(host);
 
-                _active.Add(new ActivePlayer(display, clip, MpvHost.Start(
+                // Timed separately from the window because they have completely different suspects:
+                // this one covers Process.Start plus two File.Exists checks against a
+                // OneDrive-backed clip, either of which can block on a cloud placeholder.
+                var mpvWatch = System.Diagnostics.Stopwatch.StartNew();
+                var player = MpvHost.Start(
                     _config.MpvPath, host.Handle, clip, _config.Scaling,
-                    PipeNameFor(ordinal), _guard)));
+                    PipeNameFor(ordinal), _guard);
+                mpvMs += mpvWatch.ElapsedMilliseconds;
+
+                _active.Add(new ActivePlayer(display, clip, player));
             }
             catch (Exception ex)
             {
@@ -429,6 +468,9 @@ public sealed class WallpaperEngine : IDisposable
                 _errors.Add($"{display.DeviceName}: {ex.Message}");
             }
         }
+
+        _profile.Record("createWindows", windowsMs);
+        _profile.Record("launchMpv", mpvMs);
     }
 
     /// <summary>
@@ -450,7 +492,7 @@ public sealed class WallpaperEngine : IDisposable
     {
         if (_active.Count == 0) return;
 
-        MessagePump.Sleep(MpvHost.LivenessWindow);
+        _profile!.Measure("liveness", () => MessagePump.Sleep(MpvHost.LivenessWindow));
 
         // Collected first, removed after: mutating _active while enumerating it would throw, and
         // the failures are wanted in LastErrors either way.

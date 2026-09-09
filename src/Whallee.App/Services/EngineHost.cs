@@ -141,6 +141,12 @@ public sealed class EngineHost : IDisposable
     {
         foreach (var error in LastErrors)
             _reporter.Report($"error: {error}");
+
+        // Stage timings, to the log only. "Applying a clip takes about three seconds" was not
+        // actionable while the log recorded when a pass STARTED and nothing else; this says which
+        // stage owns those seconds. See PassProfile.
+        if (_engine?.LastPassProfile is { } profile)
+            _reporter.Report(profile);
     }
 
     private void SeedDefaults()
