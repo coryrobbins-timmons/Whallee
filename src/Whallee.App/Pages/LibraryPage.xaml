@@ -41,12 +41,29 @@
                 BorderThickness="1"
                 CornerRadius="{StaticResource CardRadius}"
                 Padding="14,10" Margin="0,0,0,16">
-            <StackPanel>
-                <TextBlock x:Name="ImportStatusText" Text="Working…"
-                           Foreground="{StaticResource TextPrimaryBrush}"
-                           TextTrimming="CharacterEllipsis" />
-                <ProgressBar IsIndeterminate="True" Margin="0,10,0,0" />
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="ImportStatusText" Text="Working…"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               TextWrapping="Wrap" />
+
+                    <!-- Only ever shown when reality differed from what was asked for. -->
+                    <TextBlock x:Name="ImportStatusDetail" Visibility="Collapsed"
+                               Style="{StaticResource CaptionStyle}" Margin="0,6,0,0" />
+
+                    <ProgressBar x:Name="ImportProgress" IsIndeterminate="True"
+                                 Margin="0,10,0,0" />
+                </StackPanel>
+
+                <Button x:Name="ImportStatusDismiss" Grid.Column="1" Content="Dismiss"
+                        Visibility="Collapsed" Margin="16,0,0,0" VerticalAlignment="Center"
+                        Click="ImportStatusDismiss_Click" />
+            </Grid>
         </Border>
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">

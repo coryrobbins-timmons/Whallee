@@ -65,13 +65,35 @@ public static class ClipTrimmer
                 var stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
                 await process.WaitForExitAsync(ct).ConfigureAwait(false);
 
-                if (process.ExitCode == 0 && File.Exists(destinationPath) &&
-                    new FileInfo(destinationPath).Length > 0)
-                    return;
+                if (process.ExitCode != 0 || !File.Exists(destinationPath) ||
+                    new FileInfo(destinationPath).Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        "ffmpeg could not build a clip from the downloaded prefix. " +
+                        LastLine(stderr));
+                }
 
-                throw new InvalidOperationException(
-                    "ffmpeg could not build a clip from the downloaded prefix. " +
-                    LastLine(stderr));
+                // EXIT CODE 0 IS NOT PROOF THE FILE PLAYS, and this is not theoretical: on
+                // 2026-09-09 an import reported success and put a file in the library that mpv
+                // refused on all three displays. ffprobe's verdict on it was "moov atom not found"
+                // - the MP4 index, which lives at the END of the file, was never written.
+                //
+                // That is the exact failure this class's own remarks warn about, and the old check
+                // could not see it: a truncated MP4 has a non-zero length and ffmpeg had already
+                // exited 0. The only honest test is to try to read the thing back.
+                //
+                // Probing costs one ffprobe run on a local file. An import that quietly adds an
+                // unplayable clip costs the user a tile that looks real until they apply it.
+                var probed = await MediaProbe.ProbeAsync(ffmpegPath, destinationPath, ct)
+                    .ConfigureAwait(false);
+
+                if (probed.Duration <= TimeSpan.Zero)
+                {
+                    throw new InvalidOperationException(
+                        "The download was cut short, so the clip has no index and cannot be "
+                        + "played. Try again, or ask for a shorter section. "
+                        + LastLine(stderr));
+                }
             }
             finally
             {

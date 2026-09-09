@@ -172,49 +172,86 @@ public partial class LibraryPage : UserControl
 
                 if (!outcome.Success)
                 {
-                    // Success == false always carries a user-facing Message, never null - show it
+                    // Success == false always carries a user-facing Message, never null - shown
                     // as-is rather than composing a new one.
-                    MessageBox.Show(outcome.Message, "Whallee",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    ShowImportResult(outcome.Message, detail: null, isError: true);
                     return;
                 }
 
                 await _model.LoadAsync();
 
-                // SHOWN ONLY WHEN REALITY DIFFERED FROM THE REQUEST. A short clip is the expected
-                // result on this network, not a failure, and so is a start time that was ignored -
-                // strategy C can only ever fetch a prefix. Neither is an error, but the dialog no
-                // longer explains the limit in advance, so this message is the ONLY place the user
-                // learns what actually happened; without the second condition a clip that quietly
-                // began at 0:00 instead of the requested offset would say nothing at all. A
-                // full-length import with no start time still adds its tile silently.
-                if (outcome.ActualLength < dialog.Result.Length ||
-                    (outcome.Strategy == "C" && dialog.Result.Start > TimeSpan.Zero))
-                    MessageBox.Show(outcome.Message, "Whallee",
-                        MessageBoxButton.OK, MessageBoxImage.Information);
+                // A THEMED CARD, NOT A MessageBox. The old one was a stock system dialog - light
+                // chrome in a dark app, four lines of prose, and a modal interruption for news
+                // that is usually just "it worked".
+                //
+                // The caveat half is still load-bearing and must not be dropped in a tidy-up: the
+                // URL dialog deliberately predicts nothing in advance, so this is the ONLY place a
+                // user learns the network capped their clip or ignored their start time.
+                // ImportSummary decides the wording and is unit-tested for exactly that.
+                var summary = ImportSummary.Describe(
+                    System.IO.Path.GetFileNameWithoutExtension(outcome.LibraryPath ?? string.Empty),
+                    dialog.Result.Length, dialog.Result.Start,
+                    outcome.ActualLength, outcome.Strategy);
+
+                ShowImportResult(summary.Headline, summary.Detail, isError: false);
             }
             finally
             {
-                // Hidden in the finally, not after the success path: an import that fails, is
-                // cancelled, or throws must not leave a progress bar spinning forever over a
-                // library that is not importing anything.
-                HideImportStatus();
+                // The BAR stops in the finally, not the whole card: every path above leaves a
+                // result worth reading, but an import that failed, was cancelled or threw must not
+                // leave a bar spinning over a library that is importing nothing.
+                ImportProgress.Visibility = Visibility.Collapsed;
                 AddFromUrl.IsEnabled = true;
             }
         }
         catch (Exception ex)
         {
             _reporter.Report($"could not import that link: {ex.Message}");
+            ShowImportResult($"Could not import that link. {ex.Message}", detail: null, isError: true);
         }
     }
 
+    /// <summary>Puts the card into its working state: live message, bar running, no Dismiss.</summary>
     private void ShowImportStatus(string message)
     {
         ImportStatusText.Text = message;
+        ImportStatusText.Foreground = Brush("TextPrimaryBrush", SystemColors.ControlTextBrush);
+        ImportStatusDetail.Visibility = Visibility.Collapsed;
+        ImportProgress.Visibility = Visibility.Visible;
+        ImportStatusDismiss.Visibility = Visibility.Collapsed;
         ImportStatus.Visibility = Visibility.Visible;
     }
 
-    private void HideImportStatus() => ImportStatus.Visibility = Visibility.Collapsed;
+    /// <summary>
+    /// Puts the card into its finished state and LEAVES IT THERE until dismissed.
+    /// </summary>
+    /// <remarks>
+    /// Not auto-hidden after a delay. The detail line can be the only notice a user ever gets that
+    /// their start time was ignored, and a message that removes itself on a timer is one the user
+    /// can miss entirely by looking away - which is the failure the modal it replaced could not
+    /// have.
+    /// </remarks>
+    private void ShowImportResult(string headline, string? detail, bool isError)
+    {
+        ImportStatusText.Text = headline;
+        ImportStatusText.Foreground = isError
+            ? Brush("DangerBrush", SystemColors.ControlTextBrush)
+            : Brush("TextPrimaryBrush", SystemColors.ControlTextBrush);
+
+        ImportStatusDetail.Text = detail ?? string.Empty;
+        ImportStatusDetail.Visibility = detail is null ? Visibility.Collapsed : Visibility.Visible;
+
+        ImportProgress.Visibility = Visibility.Collapsed;
+        ImportStatusDismiss.Visibility = Visibility.Visible;
+        ImportStatus.Visibility = Visibility.Visible;
+    }
+
+    private void ImportStatusDismiss_Click(object sender, RoutedEventArgs e) =>
+        ImportStatus.Visibility = Visibility.Collapsed;
+
+    /// <summary>A theme brush by key, falling back rather than throwing while building a row.</summary>
+    private System.Windows.Media.Brush Brush(string key, System.Windows.Media.Brush fallback) =>
+        TryFindResource(key) as System.Windows.Media.Brush ?? fallback;
 
     /// <summary>
     /// Fills the tile's (empty) ContextMenu just before it opens.
