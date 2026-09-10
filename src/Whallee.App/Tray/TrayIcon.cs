@@ -74,6 +74,10 @@ public sealed class TrayIcon : IDisposable
     }
 
     private readonly TrayIconWithContextMenu _icon;
+
+    /// <summary>Unsubscribes the Explorer-restart handler. Null only if subscribing failed.</summary>
+    private readonly IDisposable? _taskbarCreated;
+
     private bool _disposed;
 
     /// <param name="onShow">Bring the window back. Marshalled to the UI thread — see remarks.</param>
@@ -118,13 +122,71 @@ public sealed class TrayIcon : IDisposable
             if (args.MouseEvent == MouseEvent.IconDoubleClick) OnUiThread(onShow);
         };
 
+        // EXPLORER RESTARTS AND TAKES THE TRAY ICON WITH IT. Windows rebuilds the notification
+        // area from nothing and broadcasts TaskbarCreated; every app is responsible for re-adding
+        // its own icon, and an app that does not simply vanishes from the tray.
+        //
+        // That happened to the owner on 2026-09-10. The app itself was untouched - still running,
+        // still painting three wallpapers, engine correctly re-attached on the same event - but the
+        // ONLY way to quit it or reopen its window is this icon, so losing it left no way out
+        // except ending the process. Subscribed BEFORE Create so a restart during start-up is
+        // caught too.
+        //
+        // The library reports the broadcast but does not act on it; re-creating is ours to do.
+        _taskbarCreated = _icon.MessageWindow.SubscribeToTaskbarCreated(
+            (_, _) => RestoreAfterExplorerRestart());
+
         _icon.Create();
+    }
+
+    /// <summary>
+    /// Re-adds the icon after Explorer has rebuilt the notification area.
+    /// </summary>
+    /// <remarks>
+    /// NOT MARSHALLED TO THE UI THREAD, unlike every callback above, and the difference is
+    /// deliberate. Those touch WPF objects; this touches the tray icon, whose HWND is owned by
+    /// H.NotifyIcon's own message-window thread - which is exactly the thread this fires on.
+    /// Shell_NotifyIcon has to be called from the thread that owns the window, so hopping to the
+    /// Dispatcher would be the wrong move here, not the safe one.
+    ///
+    /// REMOVE BEFORE CREATE: the shell has forgotten the icon but this object has not, so its
+    /// IsCreated is still true and Create alone can be refused as a duplicate. The Remove is best
+    /// effort - it is expected to fail, because the thing it would remove is already gone.
+    ///
+    /// EVERYTHING IS SWALLOWED. This runs on a non-UI thread with nothing above it to catch, and
+    /// an escaping exception would kill the process - the same defect class that made tray Exit
+    /// crash the app before the callbacks above were marshalled. A tray icon that fails to come
+    /// back is bad; taking the wallpaper engine down with it is worse.
+    /// </remarks>
+    private void RestoreAfterExplorerRestart()
+    {
+        if (_disposed) return;
+
+        try
+        {
+            if (_icon.IsCreated)
+            {
+                try { _icon.Remove(); }
+                catch (Exception) { }
+            }
+
+            _icon.Create();
+        }
+        catch (Exception)
+        {
+        }
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+
+        // Before the icon: the handler closes over _icon, and a TaskbarCreated arriving mid-teardown
+        // would otherwise try to re-create something that is being disposed.
+        try { _taskbarCreated?.Dispose(); }
+        catch (Exception) { }
+
         _icon.Dispose();
     }
 }
