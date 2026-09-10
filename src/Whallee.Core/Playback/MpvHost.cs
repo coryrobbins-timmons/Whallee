@@ -5,23 +5,8 @@ namespace Whallee.Core.Playback;
 
 public sealed class MpvHost : IDisposable
 {
-    /// <summary>
-    /// How long a freshly launched mpv must stay alive to be considered healthy.
-    /// </summary>
-    /// <remarks>
-    /// With --wid, mpv renders into a window we already own and never creates one of its own, so
-    /// "wait for the child window" is not a usable health check. Staying alive is.
-    ///
-    /// SPENT ONCE PER START PASS, NOT ONCE PER DISPLAY. <see cref="Start"/> used to spend this
-    /// window itself, which serialised the whole pass: three displays meant three seconds, and each
-    /// monitor visibly lit up a second after the one before it. The wait belongs to
-    /// <c>WallpaperEngine.StartOnce</c> now, which launches every player first and then spends the
-    /// window once for all of them — so they appear together and a pass costs ~1 s, not ~N.
-    ///
-    /// Detection is not weakened by the move: every player is still checked after at least this
-    /// long, and the ones launched earliest simply get a longer window than they used to.
-    /// </remarks>
-    public static readonly TimeSpan LivenessWindow = TimeSpan.FromSeconds(1);
+    /// <summary>The local named-pipe namespace. <see cref="PipeName"/> is stored without it.</summary>
+    private const string PipePrefix = @"\\.\pipe\";
 
     private readonly Process _process;
     private bool _disposed;
@@ -39,12 +24,37 @@ public sealed class MpvHost : IDisposable
     /// Why this player died during start-up, or null if it is still running.
     /// </summary>
     /// <remarks>
-    /// Call once per pass, after <see cref="LivenessWindow"/> has been spent for the whole pass —
-    /// calling it immediately after <see cref="Start"/> would report healthy for everything,
-    /// because mpv has not had time to fail yet.
+    /// Call once per pass, after <see cref="PlayerSettle"/> has run for the whole pass — calling it
+    /// immediately after <see cref="Start"/> would report healthy for everything, because mpv has
+    /// not had time to fail yet.
+    ///
+    /// With --wid, mpv renders into a window we already own and never creates one of its own, so
+    /// "wait for the child window" is not a usable health check. Staying alive is.
     /// </remarks>
     public string? StartupFailure(string videoPath) =>
         _process.HasExited ? MpvExitReason.Describe(_process.ExitCode, videoPath) : null;
+
+    /// <summary>
+    /// Whether mpv has opened the IPC pipe it was launched with — the earliest pump-safe sign that
+    /// it got as far as initialising.
+    /// </summary>
+    /// <remarks>
+    /// EXISTENCE ONLY, NEVER A CONNECT. This is polled from the thread that owns windows parented
+    /// into Explorer's desktop, where a blocking pipe connect would be the bug class this codebase
+    /// has fought repeatedly — <see cref="MpvIpc.Send"/> carries the same warning in its own
+    /// remarks. Testing that the path exists is an object-manager lookup and does not block.
+    ///
+    /// NOT proof that a frame has been drawn; <see cref="PlayerSettle"/> follows it with a grace
+    /// period for exactly that reason.
+    /// </remarks>
+    public bool IsIpcPipeUp
+    {
+        get
+        {
+            try { return File.Exists(PipePrefix + PipeName); }
+            catch (Exception) { return false; }
+        }
+    }
 
     /// <summary>
     /// The name this player's <c>--input-ipc-server</c> pipe was created under (without the

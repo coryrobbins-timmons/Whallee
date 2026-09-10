@@ -383,6 +383,36 @@ public sealed class WallpaperEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Polls until every player has opened its IPC pipe and had a moment to draw, or one dies, or
+    /// the cap runs out.
+    /// </summary>
+    /// <remarks>
+    /// The rule itself is <see cref="PlayerSettle.Decide"/>, which is pure and tested. This method
+    /// is only the clock, the process checks and the pumping wait — deliberately, because that
+    /// split is what makes the rule testable at all without three monitors and a video file.
+    /// </remarks>
+    private void WaitForPlayersToSettle()
+    {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        TimeSpan? readySince = null;
+
+        while (true)
+        {
+            var anyDied = _active.Any(a => !a.Player.IsRunning);
+            var allPipesUp = _active.All(a => a.Player.IsIpcPipeUp);
+
+            // Recorded the first time every pipe is up, and never moved afterwards: the grace is
+            // measured from when mpv finished initialising, not from the poll that noticed.
+            if (allPipesUp) readySince ??= watch.Elapsed;
+
+            var step = PlayerSettle.Decide(anyDied, allPipesUp, watch.Elapsed, readySince);
+            if (step != SettleStep.Wait) return;
+
+            MessagePump.Sleep(PlayerSettle.PollInterval);
+        }
+    }
+
     /// <summary>Kills one generation's players and destroys its windows. Players first.</summary>
     /// <remarks>
     /// Order matters: destroying a host window out from under a live mpv leaves it rendering into
@@ -474,25 +504,28 @@ public sealed class WallpaperEngine : IDisposable
     }
 
     /// <summary>
-    /// Spends mpv's liveness window ONCE for the whole pass, then drops any player that died in it.
+    /// Waits ONCE for the whole pass for its players to settle, then drops any that died.
     /// </summary>
     /// <remarks>
-    /// THIS IS WHY EVERY DISPLAY NOW LIGHTS UP TOGETHER. The wait used to live inside
-    /// <see cref="MpvHost.Start"/>, so the loop above blocked for a second on each display in turn:
-    /// three monitors meant a visible one-two-three cascade and a three-second pass. Launching every
-    /// player and then waiting once costs ~1 s however many displays there are.
+    /// THIS IS WHY EVERY DISPLAY LIGHTS UP TOGETHER. The wait used to live inside
+    /// <see cref="MpvHost.Start"/>, so the loop above blocked on each display in turn: three
+    /// monitors meant a visible one-two-three cascade and a three-second pass. Launching every
+    /// player and then waiting once costs the same however many displays there are.
     ///
-    /// Detection is not weakened — every player is still checked after at least a full window, and
-    /// the earliest-launched ones now get a longer one than they used to.
+    /// It POLLS rather than sleeping flat, which the pass profile said was worth doing: a measured
+    /// swap ran 2159 ms with a full second of it spent asleep here regardless of what the players
+    /// were doing. Detection improves as a side effect — a player that dies is now noticed within a
+    /// poll interval instead of always costing the whole window.
     ///
-    /// MessagePump.Sleep, never Thread.Sleep: this runs on a thread that owns windows parented into
-    /// Explorer's desktop, and a non-pumping wait here freezes the user's whole desktop.
+    /// MessagePump.Sleep, never Thread.Sleep, for the poll interval as well: this runs on a thread
+    /// that owns windows parented into Explorer's desktop, and a non-pumping wait here freezes the
+    /// user's whole desktop.
     /// </remarks>
     private void VerifyPlayersStarted()
     {
         if (_active.Count == 0) return;
 
-        _profile!.Measure("liveness", () => MessagePump.Sleep(MpvHost.LivenessWindow));
+        _profile!.Measure("settle", WaitForPlayersToSettle);
 
         // Collected first, removed after: mutating _active while enumerating it would throw, and
         // the failures are wanted in LastErrors either way.
