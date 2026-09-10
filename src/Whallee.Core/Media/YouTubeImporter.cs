@@ -217,7 +217,7 @@ public static class YouTubeImporter
 
         // START TIME IS NOT AVAILABLE HERE and the dialog must already have said so: a prefix
         // fetch only ever holds the beginning of the file, so seeking into it is meaningless.
-        await ClipTrimmer.TrimAsync(ffmpegPath, prefix, trimmed, length, TimeSpan.Zero, ct)
+        await ClipTrimmer.TrimAsync(ffmpegPath, prefix, trimmed, length, TimeSpan.Zero, ct, progress)
             .ConfigureAwait(false);
 
         // THE BYTE COUNT GOES TO THE LOG, NOT TO THE USER. It was diagnostic detail in a sentence

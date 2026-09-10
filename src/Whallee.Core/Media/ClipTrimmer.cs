@@ -25,7 +25,8 @@ public static class ClipTrimmer
         string destinationPath,
         TimeSpan length,
         TimeSpan start = default,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IProgress<string>? progress = null)
     {
         if (length <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(length),
@@ -73,27 +74,39 @@ public static class ClipTrimmer
                         LastLine(stderr));
                 }
 
-                // EXIT CODE 0 IS NOT PROOF THE FILE PLAYS, and this is not theoretical: on
-                // 2026-09-09 an import reported success and put a file in the library that mpv
-                // refused on all three displays. ffprobe's verdict on it was "moov atom not found"
-                // - the MP4 index, which lives at the END of the file, was never written.
+                // EXIT CODE 0 IS NOT PROOF THE FILE PLAYS. On 2026-09-09 an import reported
+                // success and put a file in the library that mpv refused on all three displays;
+                // ffprobe's verdict on it was "moov atom not found" - the MP4 index lives at the
+                // END of the file and was never written. A truncated MP4 still has a non-zero
+                // length and ffmpeg had already exited 0, so the checks above cannot see it.
                 //
-                // That is the exact failure this class's own remarks warn about, and the old check
-                // could not see it: a truncated MP4 has a non-zero length and ffmpeg had already
-                // exited 0. The only honest test is to try to read the thing back.
-                //
-                // Probing costs one ffprobe run on a local file. An import that quietly adds an
-                // unplayable clip costs the user a tile that looks real until they apply it.
-                var probed = await MediaProbe.ProbeAsync(ffmpegPath, destinationPath, ct)
+                // ONLY POSITIVE EVIDENCE REJECTS. The first attempt at this used
+                // MediaProbe.ProbeAsync, which collapses every failure into "no duration" - so a
+                // probe that timed out looked exactly like a broken file, and on 2026-09-10 the
+                // owner could not import anything at all. ClipIntegrity separates "ffprobe read it
+                // and rejected it" from "the check told us nothing", and only the former is grounds
+                // to fail an import.
+                var check = await ClipIntegrity.VerifyAsync(ffmpegPath, destinationPath, ct)
                     .ConfigureAwait(false);
 
-                if (probed.Duration <= TimeSpan.Zero)
+                if (check.Verdict == ClipReadability.Unreadable)
                 {
+                    // KEPT FOR INSPECTION, under a name the cleanup below will not delete. A file
+                    // that reached this point is the evidence for a bug that is otherwise
+                    // impossible to reproduce on demand, and deleting it leaves only a log line.
+                    var rejected = destinationPath + ".rejected";
+                    try { File.Copy(destinationPath, rejected, overwrite: true); }
+                    catch (Exception) { rejected = "(could not be kept)"; }
+
                     throw new InvalidOperationException(
-                        "The download was cut short, so the clip has no index and cannot be "
-                        + "played. Try again, or ask for a shorter section. "
+                        $"The downloaded clip could not be read back: {check.Detail}. "
+                        + $"Kept at {rejected} for diagnosis. "
                         + LastLine(stderr));
                 }
+
+                progress?.Report(check.Verdict == ClipReadability.Readable
+                    ? $"Checked the clip: {check.Detail}."
+                    : $"Could not confirm the clip is playable ({check.Detail}); accepting it anyway.");
             }
             finally
             {
