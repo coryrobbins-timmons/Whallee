@@ -91,16 +91,11 @@ public static class ClipTrimmer
 
                 if (check.Verdict == ClipReadability.Unreadable)
                 {
-                    // KEPT FOR INSPECTION, under a name the cleanup below will not delete. A file
-                    // that reached this point is the evidence for a bug that is otherwise
-                    // impossible to reproduce on demand, and deleting it leaves only a log line.
-                    var rejected = destinationPath + ".rejected";
-                    try { File.Copy(destinationPath, rejected, overwrite: true); }
-                    catch (Exception) { rejected = "(could not be kept)"; }
+                    var kept = Quarantine(sourcePath, destinationPath);
 
                     throw new InvalidOperationException(
                         $"The downloaded clip could not be read back: {check.Detail}. "
-                        + $"Kept at {rejected} for diagnosis. "
+                        + $"Kept at {kept} for diagnosis. "
                         + LastLine(stderr));
                 }
 
@@ -121,6 +116,53 @@ public static class ClipTrimmer
             // user's video library - it would be indistinguishable from a real clip until played.
             try { File.Delete(destinationPath); } catch (Exception) { }
             throw;
+        }
+    }
+
+    /// <summary>Where rejected clips are kept. OUTSIDE the import staging folder, deliberately.</summary>
+    /// <remarks>
+    /// The first attempt at retention copied the bad file to "&lt;destination&gt;.rejected" and claimed
+    /// the cleanup would not delete it. It did: YouTubeImporter.ImportAsync removes the WHOLE
+    /// staging directory in a finally block, so every copy was destroyed on the way out and three
+    /// separate failures on 2026-09-10 left nothing but a log line. Anything kept for diagnosis has
+    /// to live somewhere no import owns.
+    /// </remarks>
+    public static string QuarantineFolder => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Whallee", "rejected");
+
+    /// <summary>
+    /// Keeps the unreadable output AND the input it came from, and reports where they went.
+    /// </summary>
+    /// <remarks>
+    /// BOTH FILES, because either one alone is ambiguous. An output with no index can mean the
+    /// input was already broken, or that we asked ffmpeg for more than the input held; only having
+    /// the source next to it distinguishes those.
+    /// </remarks>
+    private static string Quarantine(string sourcePath, string destinationPath)
+    {
+        try
+        {
+            Directory.CreateDirectory(QuarantineFolder);
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+
+            var kept = Path.Combine(QuarantineFolder, $"{stamp}-{Path.GetFileName(destinationPath)}");
+            File.Copy(destinationPath, kept, overwrite: true);
+
+            try
+            {
+                if (File.Exists(sourcePath))
+                    File.Copy(sourcePath,
+                        Path.Combine(QuarantineFolder, $"{stamp}-{Path.GetFileName(sourcePath)}"),
+                        overwrite: true);
+            }
+            catch (Exception) { /* the output is the important half; keep it either way */ }
+
+            return kept;
+        }
+        catch (Exception)
+        {
+            return "(could not be kept)";
         }
     }
 

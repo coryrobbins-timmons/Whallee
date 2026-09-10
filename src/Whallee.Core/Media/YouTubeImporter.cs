@@ -209,11 +209,35 @@ public static class YouTubeImporter
 
         if (fetched <= 0) return null;
 
-        var available = ImportPlanner.TrimTargetFor(fetched, media.ContentLength, media.Duration);
+        // MEASURED FIRST, ESTIMATED ONLY AS A FALLBACK. The prefix's own header describes the
+        // whole video, not the bytes on disk, so it cannot answer this; and TrimTargetFor's
+        // average-bitrate estimate over-asked by 3.3s on 2026-09-10, which is all it takes to make
+        // ffmpeg hit EOF and write a clip with no index. ClipContent decodes the file and reports
+        // where it actually ran out. See ClipContent's remarks for the full measurement.
+        var measured = await ClipContent.MeasureAsync(ffmpegPath, prefix, ct).ConfigureAwait(false);
+
+        // Null means the measurement did not happen, NOT that the file is empty - so fall back to
+        // the estimate rather than failing an import that used to work. Same rule as
+        // ClipIntegrity: absence of evidence is not evidence of breakage.
+        var available = measured is { } real
+            ? ClipContent.UsableLength(real)
+            : ImportPlanner.TrimTargetFor(fetched, media.ContentLength, media.Duration);
+
         var length = available < cCeiling ? available : cCeiling;
         if (length <= TimeSpan.Zero) return null;
 
         var trimmed = stem + "-c.mp4";
+
+        // RECORDED BEFORE IT IS ACTED ON. Without these numbers next to ffmpeg's reported output
+        // length, an unreadable clip cannot be told apart from a genuinely corrupt download - the
+        // gap that made the 2026-09-10 failure take three attempts to diagnose.
+        progress?.Report(
+            $"Prefix: {fetched:N0} of {media.ContentLength:N0} bytes, video " +
+            $"{media.Duration.TotalSeconds:F1}s; " +
+            (measured is { } m
+                ? $"measured {m.TotalSeconds:F2}s"
+                : $"NOT measured, estimated {available.TotalSeconds:F1}s") +
+            $", asking ffmpeg for {length.TotalSeconds:F2}s.");
 
         // START TIME IS NOT AVAILABLE HERE and the dialog must already have said so: a prefix
         // fetch only ever holds the beginning of the file, so seeking into it is meaningless.
