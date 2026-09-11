@@ -24,7 +24,12 @@ public partial class UrlImportDialog : Window
 
     public ImportRequest? Result { get; private set; }
 
-    public UrlImportDialog(string ytDlpPath)
+    public UrlImportDialog(string ytDlpPath) : this(ytDlpPath, null) { }
+
+    /// <param name="prefillUrl">
+    /// A link to start from, used by "Edit…" so the owner need not find the video again.
+    /// </param>
+    public UrlImportDialog(string ytDlpPath, string? prefillUrl)
     {
         InitializeComponent();
 
@@ -41,6 +46,16 @@ public partial class UrlImportDialog : Window
         // already been killed once exactly that way. EVERY handler on this window is subscribed
         // here, after InitializeComponent, and none in the markup.
         UrlBox.TextChanged += UrlBox_TextChanged;
+
+        // SET AFTER THE SUBSCRIPTION, NOT AS A XAML ATTRIBUTE - the paragraph above is exactly why.
+        // By this point InitializeComponent has finished and every element exists, so the
+        // TextChanged this raises is safe, and wanted: it enables the Probe button the same way
+        // typing would.
+        if (!string.IsNullOrWhiteSpace(prefillUrl))
+        {
+            UrlBox.Text = prefillUrl;
+            UrlBox.CaretIndex = UrlBox.Text.Length;
+        }
     }
 
     /// <summary>async void: a Click handler that awaits has no other shape, so the body is wrapped.</summary>

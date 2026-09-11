@@ -24,6 +24,9 @@ public partial class ClipDetailsDialog : Window
     private readonly string? _ffmpegPath;
 
     public ClipDetailsDialog(string clipPath, string? ffmpegPath)
+        : this(clipPath, ffmpegPath, source: null) { }
+
+    public ClipDetailsDialog(string clipPath, string? ffmpegPath, Whallee.Core.Configuration.ClipSource? source)
     {
         InitializeComponent();
 
@@ -49,7 +52,25 @@ public partial class ClipDetailsDialog : Window
         // reads actual bytes - is the one pushed off this thread below.
         SizeText.Text = ReadSize(clipPath);
 
+        // A CLIP WITH NO RECORDED SOURCE IS NORMAL, not an error: everything imported before
+        // 2026-09-11, and everything added from a local file, has no link to show. Say so plainly
+        // rather than leaving the row blank, which reads as something failing to load.
+        SourceText.Text = source is null
+            ? "Not recorded"
+            : source.Start > TimeSpan.Zero
+                ? $"{source.Url}  (from {Clock(source.Start)})"
+                : source.Url;
+
         Loaded += OnLoaded;
+    }
+
+    /// <summary>"1:30" for a start offset. Local to this dialog; nothing else formats one.</summary>
+    private static string Clock(TimeSpan value)
+    {
+        var seconds = (int)Math.Round(value.TotalSeconds);
+        return value.TotalHours >= 1
+            ? $"{seconds / 3600}:{seconds / 60 % 60:00}:{seconds % 60:00}"
+            : $"{seconds / 60}:{seconds % 60:00}";
     }
 
     /// <summary>

@@ -9,6 +9,7 @@ internal sealed record ClipMenuActions(
     Action<ClipTile, string?> Apply,
     Action<ClipTile> PlayInDefaultPlayer,
     Action<ClipTile> Rename,
+    Action<ClipTile> Edit,
     Action<ClipTile> OpenFileLocation,
     Action<ClipTile> ShowDetails,
     Action<ClipTile> Delete);
@@ -33,7 +34,8 @@ internal sealed record ClipMenuActions(
 /// </remarks>
 internal static class ClipContextMenu
 {
-    public static void Populate(ContextMenu menu, ClipTile tile, ClipMenuActions actions)
+    public static void Populate(
+        ContextMenu menu, ClipTile tile, ClipMenuActions actions, bool canEdit)
     {
         // Cleared, not appended to: this runs on every open, and the menu instance is reused.
         menu.Items.Clear();
@@ -45,6 +47,15 @@ internal static class ClipContextMenu
         // top rather than beside Delete. It stays OUTSIDE the separator - renaming changes
         // something, but nothing is lost by it. Do not "tidy" it down next to Delete.
         Add(menu, "Rename…", () => actions.Rename(tile));
+
+        // DISABLED RATHER THAN HIDDEN when there is nothing to re-import from. A clip added from a
+        // local file, or imported before Whallee started recording links on 2026-09-11, has no
+        // source - and an item that silently vanishes reads as a bug, where a greyed one with a
+        // reason reads as an explanation.
+        var edit = new MenuItem { Header = "Edit…", IsEnabled = canEdit };
+        if (canEdit) edit.Click += (_, _) => actions.Edit(tile);
+        else edit.ToolTip = "Whallee has no record of where this clip came from.";
+        menu.Items.Add(edit);
 
         Add(menu, "Open file location", () => actions.OpenFileLocation(tile));
         Add(menu, "Details…", () => actions.ShowDetails(tile));

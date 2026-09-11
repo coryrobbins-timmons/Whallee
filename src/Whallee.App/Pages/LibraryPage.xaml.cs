@@ -38,6 +38,7 @@ public partial class LibraryPage : UserControl
             Apply: ApplyFromMenu,
             PlayInDefaultPlayer: PlayInDefaultPlayer,
             Rename: RenameClip,
+            Edit: EditClip,
             OpenFileLocation: OpenFileLocation,
             ShowDetails: ShowDetails,
             Delete: DeleteClip);
@@ -156,6 +157,29 @@ public partial class LibraryPage : UserControl
             var dialog = new UrlImportDialog(ytDlp) { Owner = Window.GetWindow(this) };
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
+            await RunUrlImportAsync(dialog.Result, replacing: null);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not import that link: {ex.Message}");
+            ShowImportResult($"Could not import that link. {ex.Message}", detail: null, isError: true);
+        }
+    }
+
+    /// <summary>
+    /// Downloads a request into the library, reports it, and applies it to every display.
+    /// </summary>
+    /// <param name="replacing">
+    /// The file name this import supersedes, or null for a plain add. Set by "Edit…": the old clip
+    /// is recycled only AFTER the replacement has landed, so a failed re-import costs nothing.
+    /// </param>
+    /// <remarks>
+    /// SHARED BY "Add from URL" AND "Edit…" so the two cannot drift. Everything a finished import
+    /// must do - record its source, refresh, apply, report - belongs here exactly once.
+    /// </remarks>
+    private async Task RunUrlImportAsync(ImportRequest request, string? replacing)
+    {
+        {
             AddFromUrl.IsEnabled = false;
             ShowImportStatus("Starting the download…");
             try
@@ -170,7 +194,7 @@ public partial class LibraryPage : UserControl
                     ImportStatusText.Text = m;
                 });
 
-                var outcome = await _model.ImportFromUrlAsync(dialog.Result, progress);
+                var outcome = await _model.ImportFromUrlAsync(request, progress);
 
                 if (!outcome.Success)
                 {
@@ -178,6 +202,22 @@ public partial class LibraryPage : UserControl
                     // as-is rather than composing a new one.
                     ShowImportResult(outcome.Message, detail: null, isError: true);
                     return;
+                }
+
+                // RECORDED BEFORE ANYTHING ELSE can fail. The library is bare .mp4 files - nothing
+                // on disk says where a clip came from - so this is the only moment the link is in
+                // hand. It feeds the Source row in Details and prefills "Edit…".
+                try
+                {
+                    _model.RecordSource(
+                        System.IO.Path.GetFileName(outcome.LibraryPath!),
+                        new ClipSource(request.Url, request.Start,
+                                       request.Length, DateTimeOffset.Now));
+                }
+                catch (Exception ex)
+                {
+                    // A bookkeeping record must never fail an import that worked.
+                    _reporter.Report($"imported, but could not record its source: {ex.Message}");
                 }
 
                 await _model.LoadAsync();
@@ -192,7 +232,7 @@ public partial class LibraryPage : UserControl
                 // ImportSummary decides the wording and is unit-tested for exactly that.
                 var summary = ImportSummary.Describe(
                     System.IO.Path.GetFileNameWithoutExtension(outcome.LibraryPath ?? string.Empty),
-                    dialog.Result.Length, dialog.Result.Start,
+                    request.Length, request.Start,
                     outcome.ActualLength, outcome.Strategy);
 
                 // APPLIED TO EVERY DISPLAY THE MOMENT IT LANDS, at the owner's request
@@ -214,6 +254,31 @@ public partial class LibraryPage : UserControl
                     _reporter.Report($"imported, but could not apply it: {ex.Message}");
                 }
 
+                // THE OLD CLIP GOES LAST, and only once the replacement is on disk, listed and
+                // applied. Recycling it first would mean a failed re-import left the owner with
+                // neither clip - and the reason to press "Edit…" is that they want a different cut
+                // of a video they already have.
+                //
+                // Skipped when the replacement landed under the same name: the importer would have
+                // had to overwrite it, so there is nothing left to remove and deleting by that name
+                // would recycle the NEW clip.
+                if (replacing is not null &&
+                    !string.Equals(replacing, System.IO.Path.GetFileName(outcome.LibraryPath),
+                                   StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var old = System.IO.Path.Combine(_model.Config.LibraryFolder, replacing);
+                        if (await _model.DeleteClipAsync(old)) await _model.LoadAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        // Both clips now exist, which is untidy but not harmful - and the new one
+                        // is already applied. Say so rather than failing an import that worked.
+                        _reporter.Report($"imported, but could not remove {replacing}: {ex.Message}");
+                    }
+                }
+
                 ShowImportResult(summary.Headline, summary.Detail, isError: false);
             }
             finally
@@ -225,10 +290,42 @@ public partial class LibraryPage : UserControl
                 AddFromUrl.IsEnabled = true;
             }
         }
+    }
+
+    /// <summary>
+    /// "Edit…": re-import the clip's original link, so a different section can be chosen.
+    /// </summary>
+    /// <remarks>
+    /// async void, wrapped end to end - the shape every Click handler that awaits must take.
+    ///
+    /// Only offered for clips Whallee imported and recorded. The menu disables it otherwise rather
+    /// than hiding it, so the owner can see the option exists and why it does not apply here.
+    /// </remarks>
+    private async void EditClip(ClipTile tile)
+    {
+        try
+        {
+            var source = _model.SourceOf(tile.FileName);
+            if (source is null) return;   // the menu item is disabled in this case
+
+            var ytDlp = await Task.Run(() => YtDlpLocator.Locate(_model.ConfiguredYtDlpPath));
+            if (ytDlp is null)
+            {
+                Dialogs.MessageDialog.Show(Window.GetWindow(this),
+                    "yt-dlp was not found on this machine.",
+                    "It is needed to re-import from a link. Set its location in Settings.");
+                return;
+            }
+
+            var dialog = new UrlImportDialog(ytDlp, source.Url) { Owner = Window.GetWindow(this) };
+            if (dialog.ShowDialog() != true || dialog.Result is null) return;
+
+            await RunUrlImportAsync(dialog.Result, replacing: tile.FileName);
+        }
         catch (Exception ex)
         {
-            _reporter.Report($"could not import that link: {ex.Message}");
-            ShowImportResult($"Could not import that link. {ex.Message}", detail: null, isError: true);
+            _reporter.Report($"could not re-import {tile.FileName}: {ex.Message}");
+            ShowImportResult($"Could not re-import that clip. {ex.Message}", detail: null, isError: true);
         }
     }
 
@@ -295,7 +392,8 @@ public partial class LibraryPage : UserControl
                 return;
             }
 
-            ClipContextMenu.Populate(button.ContextMenu, tile, _menuActions);
+            ClipContextMenu.Populate(
+                button.ContextMenu, tile, _menuActions, _model.SourceOf(tile.FileName) is not null);
         }
         catch (Exception ex)
         {
@@ -411,7 +509,7 @@ public partial class LibraryPage : UserControl
     {
         try
         {
-            new ClipDetailsDialog(tile.Path, _model.ConfiguredFfmpegPath)
+            new ClipDetailsDialog(tile.Path, _model.ConfiguredFfmpegPath, _model.SourceOf(tile.FileName))
             {
                 Owner = Window.GetWindow(this)
             }.ShowDialog();

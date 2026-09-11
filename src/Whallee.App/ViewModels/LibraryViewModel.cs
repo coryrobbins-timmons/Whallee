@@ -74,6 +74,27 @@ public sealed class LibraryViewModel
     /// <summary>The live config, for callers that need to ask what a clip is pinned to.</summary>
     public WhalleeConfig Config => _engine.Config;
 
+    /// <summary>
+    /// Where each imported clip came from. A miss is normal, never an error.
+    /// </summary>
+    /// <remarks>
+    /// SEPARATE FROM config.json ON PURPOSE. This is a convenience record - it feeds one row in
+    /// Details and prefills "Edit…" - and must never be able to take the engine's configuration
+    /// down with it. ClipSourceStore.Load cannot throw and Save swallows, so the worst case is a
+    /// missing row.
+    /// </remarks>
+    private readonly ClipSourceIndex _sources = ClipSourceStore.Load(ClipSourceStore.DefaultPath);
+
+    /// <summary>Where <paramref name="fileName"/> came from, or null if it was never recorded.</summary>
+    public ClipSource? SourceOf(string? fileName) => _sources.Get(fileName);
+
+    /// <summary>Records where a freshly imported clip came from.</summary>
+    public void RecordSource(string fileName, ClipSource source)
+    {
+        _sources.Record(fileName, source);
+        ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+    }
+
     public LibraryViewModel(EngineHost engine, UiReporter reporter)
     {
         _engine = engine;
@@ -398,6 +419,13 @@ public sealed class LibraryViewModel
     {
         var fileName = Path.GetFileName(clipPath);
 
+        // Forgotten up front rather than on each success path: this method returns true from four
+        // separate places, and a stale entry here would resurface as a wrong source the next time
+        // something was imported under the same name. An entry for a clip that survives a failed
+        // delete is harmless - nothing reads an entry whose file is still there.
+        if (_sources.Remove(fileName))
+            ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+
         // CAPTURED BEFORE THE FILE GOES AWAY. The thumbnail cache key hashes path AND last-write
         // time, so once the clip is recycled there is no way to work out which cached jpg was its.
         DateTime? stamp = null;
@@ -541,6 +569,12 @@ public sealed class LibraryViewModel
         }
 
         MoveCachedThumbnail(clipPath, newPath, stamp);
+
+        // The source link follows the file, for the same reason the pins do: a rename that left it
+        // behind would lose where the clip came from silently and permanently, and Details would
+        // start claiming an imported clip had no source.
+        if (_sources.Rename(oldName, newName))
+            ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
 
         var repointed = ClipRename.Repoint(_engine.Config, oldName, newName);
         if (repointed > 0) _engine.SaveConfig();

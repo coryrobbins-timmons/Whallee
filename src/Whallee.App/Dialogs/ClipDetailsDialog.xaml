@@ -36,8 +36,15 @@
             <TextBlock Grid.Row="3" Grid.Column="1" x:Name="DurationText" Text="…"
                        Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,0" />
-            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ResolutionText" Text="…" />
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ResolutionText" Text="…" Margin="0,0,0,6" />
+
+            <!-- "Location" above is where the FILE is; this is where the video CAME FROM. Selectable
+                 because a link the reader cannot copy is barely a link at all. -->
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Source" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,0" />
+            <TextBox Grid.Row="5" Grid.Column="1" x:Name="SourceText" Text="…"
+                     IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                     Background="Transparent" Padding="0" />
         </Grid>
 
         <Button Content="Close" HorizontalAlignment="Right" Margin="0,20,0,0"
