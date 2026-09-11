@@ -78,17 +78,26 @@ public static class RangePrefixFetcher
 
                     // 206 is the success case. A 200 here would mean the server ignored the Range and
                     // is about to send the whole multi-GB file - refuse it rather than swallow it.
-                    if (response.StatusCode != HttpStatusCode.PartialContent)
+                    if (response.StatusCode == HttpStatusCode.Forbidden ||
+                        response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
                     {
                         // NOT COUNTED AS A FAILURE, and that is the entire fix. A refusal here means
                         // this range ENDS past the network's offset wall, not that the transport
                         // broke - a smaller chunk at the same offset is usually served. Counting it
                         // toward MaxConsecutiveFailures is what made the fetch stop at 2 MiB when
                         // ~3.3 MiB was reachable, costing ~22 seconds of every import.
-                        var next = ChunkBackoff.NextSizeAfterRefusal(chunkSize);
+                        //
+                        // Back off from the span ACTUALLY REQUESTED (to - from + 1), not chunkSize.
+                        // Near `ceiling`, `to` is clamped well short of from + chunkSize, so the
+                        // requested span can be far smaller than chunkSize; backing off from chunkSize
+                        // could return a size LARGER than the span just refused, which just re-clamps
+                        // to the identical doomed range on the next iteration - the same infinite
+                        // stall this back-off was written to remove, just moved one level up.
+                        var requestedLength = to - from + 1;
+                        var next = ChunkBackoff.NextSizeAfterRefusal(requestedLength);
 
                         log?.Invoke(
-                            $"chunk at {from:N0} size {chunkSize:N0}: {(int)response.StatusCode} " +
+                            $"chunk at {from:N0} size {requestedLength:N0}: {(int)response.StatusCode} " +
                             $"{response.StatusCode}" +
                             (next is null
                                 ? " - wall reached, stopping"
@@ -100,6 +109,20 @@ public static class RangePrefixFetcher
                         if (next is null) break;
 
                         chunkSize = next.Value;
+                        continue;
+                    }
+
+                    // Any other non-206/403/416 status (429, 500, 502, 503, or a 200 that ignored the
+                    // Range) is a transport/server problem, not proof the range is unreachable - it
+                    // must retry at the SAME size like HttpRequestException does, not consume a
+                    // halving. Treating a transient error as the wall would silently truncate the
+                    // fetch far short of the genuine offset limit.
+                    if (response.StatusCode != HttpStatusCode.PartialContent)
+                    {
+                        consecutiveFailures++;
+                        log?.Invoke(
+                            $"chunk at {from:N0}: {(int)response.StatusCode} {response.StatusCode} " +
+                            $"(failure {consecutiveFailures})");
                         continue;
                     }
 
