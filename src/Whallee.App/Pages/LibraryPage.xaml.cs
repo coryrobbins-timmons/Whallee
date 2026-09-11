@@ -106,8 +106,9 @@ public partial class LibraryPage : UserControl
             var added = await _model.ImportFileAsync(dialog.FileName);
             if (added is null)
             {
-                MessageBox.Show("That file type is not supported. Use .mp4, .mkv, .webm or .mov.",
-                    "Whallee", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.MessageDialog.Show(Window.GetWindow(this),
+                    "That file type is not supported.",
+                    "Use .mp4, .mkv, .webm or .mov.");
                 return;
             }
 
@@ -146,8 +147,9 @@ public partial class LibraryPage : UserControl
             var ytDlp = await Task.Run(() => YtDlpLocator.Locate(_model.ConfiguredYtDlpPath));
             if (ytDlp is null)
             {
-                MessageBox.Show("yt-dlp was not found on this machine.", "Whallee",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dialogs.MessageDialog.Show(Window.GetWindow(this),
+                    "yt-dlp was not found on this machine.",
+                    "It is needed to import from a link. Set its location in Settings.");
                 return;
             }
 
@@ -192,6 +194,25 @@ public partial class LibraryPage : UserControl
                     System.IO.Path.GetFileNameWithoutExtension(outcome.LibraryPath ?? string.Empty),
                     dialog.Result.Length, dialog.Result.Start,
                     outcome.ActualLength, outcome.Strategy);
+
+                // APPLIED TO EVERY DISPLAY THE MOMENT IT LANDS, at the owner's request
+                // (2026-09-11). Importing a wallpaper and then having to right-click it to see it
+                // was a step with no decision in it - the reason you fetched the clip is to look
+                // at it. Passing null as the device name is the same path as "Apply to → All
+                // displays"; it overwrites existing per-display pins, which is what "change all of
+                // the backgrounds" asks for.
+                //
+                // AFTER the library reload above, so the file is on disk and listed before anything
+                // tries to resolve it, and guarded separately: a clip that imported correctly must
+                // still be reported as imported even if applying it fails.
+                try
+                {
+                    _model.ApplyClip(outcome.LibraryPath!, null);
+                }
+                catch (Exception ex)
+                {
+                    _reporter.Report($"imported, but could not apply it: {ex.Message}");
+                }
 
                 ShowImportResult(summary.Headline, summary.Detail, isError: false);
             }
@@ -344,9 +365,8 @@ public partial class LibraryPage : UserControl
         }
         catch (Win32Exception)
         {
-            MessageBox.Show(
-                $"Windows has no app associated with {Path.GetExtension(tile.Path)} files.",
-                "Whallee", MessageBoxButton.OK, MessageBoxImage.Information);
+            Dialogs.MessageDialog.Show(Window.GetWindow(this),
+                $"Windows has no app associated with {Path.GetExtension(tile.Path)} files.");
         }
         catch (Exception ex)
         {
@@ -459,16 +479,22 @@ public partial class LibraryPage : UserControl
         {
             var pinned = ClipRemoval.PinnedDisplayNames(_model.Config, tile.FileName);
 
-            var question = pinned.Count == 0
-                ? $"Delete {tile.FileName} from the library?"
-                : $"Delete {tile.FileName} from the library?\n\nIt is pinned to " +
-                  $"{string.Join(", ", pinned)}, which will go back to shuffling.";
+            var question = $"Delete {tile.FileName} from the library?";
 
-            var answer = MessageBox.Show(
-                question + "\n\nIt will be moved to the Recycle Bin.",
-                "Whallee", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+            // The pin warning moves into the detail line rather than being glued to the question
+            // with blank lines - MessageDialog has a second, quieter line for exactly this, and a
+            // themed dialog does not need \n\n to get breathing room.
+            var detail = "It will be moved to the Recycle Bin.";
+            if (pinned.Count > 0)
+                detail = $"It is pinned to {string.Join(", ", pinned)}, which will go back to "
+                       + "shuffling. " + detail;
 
-            if (answer != MessageBoxResult.Yes) return;
+            // Cancel is the default inside MessageDialog.Confirm, preserving what the old
+            // MessageBoxResult.No fourth argument bought: Enter cancels rather than deletes. See
+            // MessageDialog's remarks - this is the only destructive action in the app.
+            if (!Dialogs.MessageDialog.Confirm(
+                    Window.GetWindow(this), question, detail, confirmText: "Delete"))
+                return;
 
             // Only refresh when something actually changed: a refused delete leaves a grid that is
             // still correct, and LoadAsync re-runs the whole thumbnail pass.
