@@ -109,13 +109,12 @@ public static class YouTubeImporter
                  {
                      "--no-warnings", "--no-playlist",
 
-                     // PROGRESS, because this path can now take minutes. Until yt-dlp was updated
-                     // on 2026-09-11 strategy A failed within seconds on every video, so nobody
-                     // noticed it reported nothing; now it is the normal path and a multi-minute
-                     // 1440p section left the status card frozen on "Trying a direct section
-                     // download…". --newline stops yt-dlp rewriting one line with carriage
-                     // returns, which ReadLine would never terminate.
-                     "--newline", "--progress-template", DownloadProgress.Template,
+                     // NO --progress-template HERE, deliberately. The obvious move is to ask yt-dlp
+                     // for machine-readable progress, and it does not work: --download-sections
+                     // hands the transfer to ffmpeg, so yt-dlp's progress hook fires ONCE - a
+                     // single "100.0%" at the very end - and reports nothing for the whole
+                     // download. Measured 2026-09-11. The live numbers are on ffmpeg's stderr and
+                     // are read below.
                      // WITHOUT THIS, yt-dlp stamps the output file's mtime from the response
                      // Last-Modified header, which googlevideo reports as the video's transcode
                      // date - weeks or years in the past, not when this import ran. --no-mtime
@@ -139,25 +138,42 @@ public static class YouTubeImporter
         using var process = Process.Start(info);
         if (process is null) return null;
 
-        // DRAINED VIA THE EVENT, not read at the end: stdout now carries live progress, and a
-        // buffer left unread would both lose the progress and eventually block yt-dlp. Everything
-        // here is guarded - a malformed line from another program's output must not fail an import
-        // that is otherwise working.
-        process.OutputDataReceived += (_, e) =>
-        {
-            try
-            {
-                var text = DownloadProgress.Describe(e.Data);
-                if (text is not null) progress?.Report(text);
-            }
-            catch (Exception) { /* progress is cosmetic; never let it break the download */ }
-        };
+        // Drained so a full buffer cannot block the child. Nothing reads it: the progress is on
+        // stderr, and yt-dlp's own stdout chatter is not worth showing.
         process.BeginOutputReadLine();
 
         string stderr;
         try
         {
-            stderr = await process.StandardError.ReadToEndAsync(ct).ConfigureAwait(false);
+            // READ IN BLOCKS, NOT ReadToEndAsync, and that is the entire fix for the missing
+            // percentage. ReadToEnd does not return until the process exits, so every progress
+            // update arrived at once, after it was any use. ffmpeg also rewrites its stats with
+            // CARRIAGE RETURNS rather than newlines, so a line-based read would sit on one
+            // enormous unterminated line for the whole download.
+            //
+            // The full text is still accumulated, because LastLine(stderr) below is how a failure
+            // reports its reason.
+            var collected = new System.Text.StringBuilder();
+            var buffer = new char[4096];
+            int read;
+
+            while ((read = await process.StandardError
+                       .ReadAsync(buffer, ct).ConfigureAwait(false)) > 0)
+            {
+                var chunk = new string(buffer, 0, read);
+                collected.Append(chunk);
+
+                // Guarded: progress is cosmetic, and parsing another program's output must never
+                // fail an import that is otherwise working.
+                try
+                {
+                    var text = DownloadProgress.Describe(chunk, request.Length);
+                    if (text is not null) progress?.Report(text);
+                }
+                catch (Exception) { /* keep downloading */ }
+            }
+
+            stderr = collected.ToString();
             await process.WaitForExitAsync(ct).ConfigureAwait(false);
         }
         finally
