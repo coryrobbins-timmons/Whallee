@@ -102,11 +102,20 @@ public static class YouTubeImporter
 
         var info = new ProcessStartInfo(ytDlpPath)
         {
-            RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
+            RedirectStandardError = true, RedirectStandardOutput = true,
+            UseShellExecute = false, CreateNoWindow = true
         };
         foreach (var argument in new[]
                  {
                      "--no-warnings", "--no-playlist",
+
+                     // PROGRESS, because this path can now take minutes. Until yt-dlp was updated
+                     // on 2026-09-11 strategy A failed within seconds on every video, so nobody
+                     // noticed it reported nothing; now it is the normal path and a multi-minute
+                     // 1440p section left the status card frozen on "Trying a direct section
+                     // download…". --newline stops yt-dlp rewriting one line with carriage
+                     // returns, which ReadLine would never terminate.
+                     "--newline", "--progress-template", DownloadProgress.Template,
                      // WITHOUT THIS, yt-dlp stamps the output file's mtime from the response
                      // Last-Modified header, which googlevideo reports as the video's transcode
                      // date - weeks or years in the past, not when this import ran. --no-mtime
@@ -129,6 +138,21 @@ public static class YouTubeImporter
 
         using var process = Process.Start(info);
         if (process is null) return null;
+
+        // DRAINED VIA THE EVENT, not read at the end: stdout now carries live progress, and a
+        // buffer left unread would both lose the progress and eventually block yt-dlp. Everything
+        // here is guarded - a malformed line from another program's output must not fail an import
+        // that is otherwise working.
+        process.OutputDataReceived += (_, e) =>
+        {
+            try
+            {
+                var text = DownloadProgress.Describe(e.Data);
+                if (text is not null) progress?.Report(text);
+            }
+            catch (Exception) { /* progress is cosmetic; never let it break the download */ }
+        };
+        process.BeginOutputReadLine();
 
         string stderr;
         try

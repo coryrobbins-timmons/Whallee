@@ -33,22 +33,33 @@ public static class ImportSummary
         string clipName, TimeSpan requested, TimeSpan requestedStart,
         TimeSpan actual, string strategy)
     {
-        var headline = $"Imported {clipName} — {Clock(actual)}.";
+        // "— 5:00 long", NOT "— 5:00". A bare duration ends this sentence right after a wait that
+        // can run to minutes, and on 2026-09-11 the owner read it as how long the DOWNLOAD took
+        // rather than how long the CLIP is. One word removes the ambiguity.
+        var headline = $"Imported {clipName} — {Clock(actual)} long.";
 
         var shorterThanAsked = actual < requested;
         var startIgnored = strategy == "C" && requestedStart > TimeSpan.Zero;
 
+        // NO LONGER BLAMES "THIS NETWORK", and that correction matters. Every one of these
+        // sentences used to open with it, on the belief that a ~60 s cap was imposed by the owner's
+        // network. It was not: yt-dlp was stale and resolved videos through the android_vr client,
+        // which YouTube itself serves about a minute of. A current yt-dlp reaches any timestamp at
+        // full quality. Telling the owner their network is at fault would now send them to argue
+        // with the wrong people, so these say only what is observable - what was asked for, and
+        // what arrived.
+        //
         // Both caveats in one sentence when both apply. Two sentences for two facts about the same
         // clip reads like two separate problems.
         var detail = (shorterThanAsked, startIgnored) switch
         {
             (true, true) =>
-                $"This network capped it at {Clock(actual)} of the {Clock(requested)} you asked for, "
-                + $"and refused to start at {Clock(requestedStart)} — it begins at the beginning.",
+                $"Only {Clock(actual)} of the {Clock(requested)} you asked for could be fetched, "
+                + $"and it begins at the beginning rather than {Clock(requestedStart)}.",
             (true, false) =>
-                $"This network capped it at {Clock(actual)} of the {Clock(requested)} you asked for.",
+                $"Only {Clock(actual)} of the {Clock(requested)} you asked for could be fetched.",
             (false, true) =>
-                $"This network refused to start at {Clock(requestedStart)} — it begins at the beginning.",
+                $"This clip begins at the beginning rather than {Clock(requestedStart)}.",
             _ => null
         };
 

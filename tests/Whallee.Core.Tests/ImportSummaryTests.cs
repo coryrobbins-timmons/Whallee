@@ -16,7 +16,7 @@ public class ImportSummaryTests
     [Fact]
     public void HeadlineNamesTheClipAndItsLength()
     {
-        Assert.Equal("Imported Motorcyle Sunset — 54 seconds.", Describe(54, 0, 54).Headline);
+        Assert.Equal("Imported Motorcyle Sunset — 54 seconds long.", Describe(54, 0, 54).Headline);
     }
 
     /// <summary>
@@ -33,7 +33,7 @@ public class ImportSummaryTests
     public void ExplainsAShortenedClip()
     {
         var detail = Describe(askedSeconds: 300, startSeconds: 0, actualSeconds: 54).Detail;
-        Assert.Equal("This network capped it at 54 seconds of the 5:00 you asked for.", detail);
+        Assert.Equal("Only 54 seconds of the 5:00 you asked for could be fetched.", detail);
     }
 
     /// <summary>
@@ -45,7 +45,7 @@ public class ImportSummaryTests
     {
         var detail = Describe(askedSeconds: 54, startSeconds: 90, actualSeconds: 54).Detail;
         Assert.NotNull(detail);
-        Assert.Contains("refused to start at 1:30", detail);
+        Assert.Contains("rather than 1:30", detail);
     }
 
     [Fact]
@@ -53,8 +53,8 @@ public class ImportSummaryTests
     {
         var detail = Describe(askedSeconds: 300, startSeconds: 90, actualSeconds: 54).Detail;
         Assert.NotNull(detail);
-        Assert.Contains("capped it at 54 seconds", detail);
-        Assert.Contains("refused to start at 1:30", detail);
+        Assert.Contains("Only 54 seconds", detail);
+        Assert.Contains("rather than 1:30", detail);
         Assert.Equal(1, detail!.Count(c => c == '.'));
     }
 

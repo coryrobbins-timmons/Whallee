@@ -8,9 +8,25 @@ namespace Whallee.Core.Media;
 public static class ImportPlanner
 {
     /// <summary>
-    /// How much video content this network will serve before refusing, measured 2026-09-01.
+    /// How much content is served before refusing, on the STRATEGY C fallback path only.
     /// </summary>
     /// <remarks>
+    /// NOT A PROPERTY OF THE OWNER'S NETWORK, despite what this comment claimed until 2026-09-11.
+    /// The cap belongs to YouTube's android_vr client. A stale yt-dlp (2026.07.04) resolved every
+    /// video through that client, and googlevideo serves roughly a minute of such a URL and then
+    /// answers 403 - confirmed by the refusal carrying "Server: gvs 1.0", and by a freshly resolved
+    /// URL being refused on its FIRST request with nothing consumed. Other clients resolved by the
+    /// same binary served byte 20 MiB of the same video without complaint.
+    ///
+    /// Updating yt-dlp to 2026.08.19 moved the default to a client that serves the whole file at
+    /// full quality, which made strategy A succeed and start times real. This number therefore no
+    /// longer binds a healthy import: it only sizes the prefix request on the strategy C fallback,
+    /// and only once A has already failed for some other reason.
+    ///
+    /// KEPT RATHER THAN DELETED because C is still the fallback and still needs a sane request
+    /// size. If C ever becomes the common path again, RE-MEASURE before trusting this.
+    ///
+    /// The original 2026-09-01 measurement, which remains sound for the android_vr case:
     /// A DURATION, NOT A BYTE COUNT, and that distinction is the whole point. Three measurements
     /// at ~1.0, ~3.8 and ~9.0 Mbps were served 6 MiB, 26 MiB and 64 MiB respectively - byte counts
     /// spanning more than 10x - but 51.0 s, 56.9 s and 59.8 s of content. Bracketing each between
