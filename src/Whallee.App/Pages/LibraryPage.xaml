@@ -19,7 +19,7 @@
             <ComboBox x:Name="TargetSelector" Width="240" SelectedIndex="0" />
             <Button x:Name="AddFromFile" Content="Add from file…" Margin="20,0,0,0"
                     Click="AddFromFile_Click" />
-            <Button x:Name="AddFromUrl" Content="Add from URL…" Margin="8,0,0,0"
+            <Button x:Name="AddFromUrl" Content="Add from YouTube URL…" Margin="8,0,0,0"
                     Click="AddFromUrl_Click" />
         </StackPanel>
 
