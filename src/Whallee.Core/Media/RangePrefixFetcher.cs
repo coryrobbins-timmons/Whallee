@@ -19,8 +19,6 @@ namespace Whallee.Core.Media;
 /// </remarks>
 public static class RangePrefixFetcher
 {
-    public const long ChunkSize = 2 * 1024 * 1024;
-
     private const int MaxConsecutiveFailures = 3;
 
     private static readonly HttpClient Client = new(new HttpClientHandler
@@ -58,12 +56,16 @@ public static class RangePrefixFetcher
 
             var buffer = new byte[81920];
 
+            // SHRINKS ON REFUSAL, NEVER GROWS. See ChunkBackoff for why a refused chunk is the wall
+            // rather than an error, and why growing back would only waste a request.
+            var chunkSize = ChunkBackoff.InitialSize;
+
             while (written < ceiling && consecutiveFailures < MaxConsecutiveFailures)
             {
                 ct.ThrowIfCancellationRequested();
 
                 var from = written;
-                var to = Math.Min(from + ChunkSize, ceiling) - 1;
+                var to = Math.Min(from + chunkSize, ceiling) - 1;
 
                 using var request = new HttpRequestMessage(HttpMethod.Get, media.Url);
                 request.Headers.Range = new RangeHeaderValue(from, to);
@@ -78,9 +80,26 @@ public static class RangePrefixFetcher
                     // is about to send the whole multi-GB file - refuse it rather than swallow it.
                     if (response.StatusCode != HttpStatusCode.PartialContent)
                     {
-                        consecutiveFailures++;
-                        log?.Invoke($"chunk at {from:N0}: {(int)response.StatusCode} " +
-                                    $"{response.StatusCode} (failure {consecutiveFailures})");
+                        // NOT COUNTED AS A FAILURE, and that is the entire fix. A refusal here means
+                        // this range ENDS past the network's offset wall, not that the transport
+                        // broke - a smaller chunk at the same offset is usually served. Counting it
+                        // toward MaxConsecutiveFailures is what made the fetch stop at 2 MiB when
+                        // ~3.3 MiB was reachable, costing ~22 seconds of every import.
+                        var next = ChunkBackoff.NextSizeAfterRefusal(chunkSize);
+
+                        log?.Invoke(
+                            $"chunk at {from:N0} size {chunkSize:N0}: {(int)response.StatusCode} " +
+                            $"{response.StatusCode}" +
+                            (next is null
+                                ? " - wall reached, stopping"
+                                : $" - retrying at {next.Value:N0}"));
+
+                        // The floor was refused too: this offset is genuinely unreachable. Stop and
+                        // keep everything fetched so far - this is a NORMAL end, not an error, so it
+                        // must not throw or delete the file.
+                        if (next is null) break;
+
+                        chunkSize = next.Value;
                         continue;
                     }
 
