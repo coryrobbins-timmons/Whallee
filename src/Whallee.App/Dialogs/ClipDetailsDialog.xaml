@@ -13,12 +13,19 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
+            <!-- ONE PER ROW USED BELOW, and count them when adding another. WPF does not complain
+                 about a Grid.Row past the last definition - it silently clamps the content into the
+                 last row, where it draws ON TOP of whatever is already there. That is exactly what
+                 the Source row did on 2026-09-11: six rows of content, five definitions, and the
+                 URL rendered over the Resolution value. -->
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />  <!-- Location   -->
+                <RowDefinition Height="Auto" />  <!-- Format     -->
+                <RowDefinition Height="Auto" />  <!-- Size       -->
+                <RowDefinition Height="Auto" />  <!-- Duration   -->
+                <RowDefinition Height="Auto" />  <!-- Resolution -->
+                <RowDefinition Height="Auto" />  <!-- Source     -->
+                <RowDefinition Height="Auto" />  <!-- Source error -->
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Location" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
@@ -39,12 +46,27 @@
             <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ResolutionText" Text="…" Margin="0,0,0,6" />
 
-            <!-- "Location" above is where the FILE is; this is where the video CAME FROM. Selectable
-                 because a link the reader cannot copy is barely a link at all. -->
+            <!-- "Location" above is where the FILE is; this is where the video CAME FROM. A TextBox
+                 rather than a TextBlock so the link can be selected and copied - and so the same
+                 control can be typed into when there is no link yet. -->
             <TextBlock Grid.Row="5" Grid.Column="0" Text="Source" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,0" />
-            <TextBox Grid.Row="5" Grid.Column="1" x:Name="SourceText" Text="…"
-                     IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
-                     Background="Transparent" Padding="0" />
+            <DockPanel Grid.Row="5" Grid.Column="1">
+                <!-- Both collapsed here and shown from code: which one applies depends on whether a
+                     source was recorded, which the markup cannot know. -->
+                <Button x:Name="AddLinkButton" DockPanel.Dock="Right" Content="Add link…"
+                        Margin="8,0,0,0" VerticalAlignment="Top" Visibility="Collapsed" />
+                <Button x:Name="SaveLinkButton" DockPanel.Dock="Right" Content="Save"
+                        Margin="8,0,0,0" VerticalAlignment="Top" Visibility="Collapsed"
+                        Style="{StaticResource PrimaryButtonStyle}" />
+
+                <TextBox x:Name="SourceText" Text="…"
+                         IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0"
+                         Background="Transparent" Padding="0" />
+            </DockPanel>
+
+            <TextBlock Grid.Row="6" Grid.Column="1" x:Name="SourceError" Margin="0,6,0,0"
+                       Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
+                       Visibility="Collapsed" />
         </Grid>
 
         <Button Content="Close" HorizontalAlignment="Right" Margin="0,20,0,0"

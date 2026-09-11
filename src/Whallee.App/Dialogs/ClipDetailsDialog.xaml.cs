@@ -23,11 +23,21 @@ public partial class ClipDetailsDialog : Window
     private readonly string _clipPath;
     private readonly string? _ffmpegPath;
 
-    public ClipDetailsDialog(string clipPath, string? ffmpegPath)
-        : this(clipPath, ffmpegPath, source: null) { }
+    /// <summary>
+    /// Called when the owner adds a link to a clip that had none. Null hides the offer entirely.
+    /// </summary>
+    private readonly Action<Whallee.Core.Configuration.ClipSource>? _onLinkAdded;
 
-    public ClipDetailsDialog(string clipPath, string? ffmpegPath, Whallee.Core.Configuration.ClipSource? source)
+    public ClipDetailsDialog(string clipPath, string? ffmpegPath)
+        : this(clipPath, ffmpegPath, source: null, onLinkAdded: null) { }
+
+    public ClipDetailsDialog(
+        string clipPath, string? ffmpegPath,
+        Whallee.Core.Configuration.ClipSource? source,
+        Action<Whallee.Core.Configuration.ClipSource>? onLinkAdded)
     {
+        _onLinkAdded = onLinkAdded;
+
         InitializeComponent();
 
         // Follows this file's stated convention: subscribed in code after
@@ -54,14 +64,103 @@ public partial class ClipDetailsDialog : Window
 
         // A CLIP WITH NO RECORDED SOURCE IS NORMAL, not an error: everything imported before
         // 2026-09-11, and everything added from a local file, has no link to show. Say so plainly
-        // rather than leaving the row blank, which reads as something failing to load.
-        SourceText.Text = source is null
-            ? "Not recorded"
-            : source.Start > TimeSpan.Zero
-                ? $"{source.Url}  (from {Clock(source.Start)})"
-                : source.Url;
+        // rather than leaving the row blank, which reads as something failing to load - and offer
+        // to fill it in, which is what makes "Edit…" reachable for those clips at all.
+        ShowRecorded(source);
+
+        AddLinkButton.Click += (_, _) => BeginEditingLink();
+        SaveLinkButton.Click += (_, _) => SaveLink();
 
         Loaded += OnLoaded;
+    }
+
+    /// <summary>Shows the recorded link, or the offer to add one.</summary>
+    private void ShowRecorded(Whallee.Core.Configuration.ClipSource? source)
+    {
+        SourceError.Visibility = Visibility.Collapsed;
+        SaveLinkButton.Visibility = Visibility.Collapsed;
+
+        SourceText.IsReadOnly = true;
+        SourceText.BorderThickness = new Thickness(0);
+        SourceText.Background = System.Windows.Media.Brushes.Transparent;
+        SourceText.Padding = new Thickness(0);
+
+        if (source is null)
+        {
+            SourceText.Text = "Not recorded";
+            AddLinkButton.Visibility = _onLinkAdded is null ? Visibility.Collapsed : Visibility.Visible;
+            return;
+        }
+
+        SourceText.Text = source.Start > TimeSpan.Zero
+            ? $"{source.Url}  (from {Clock(source.Start)})"
+            : source.Url;
+
+        AddLinkButton.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Turns the Source row into an input.
+    /// </summary>
+    /// <remarks>
+    /// The local values set in <see cref="ShowRecorded"/> are CLEARED rather than overwritten, so
+    /// the box falls back to the themed TextBox style and looks like every other field in the app.
+    /// Setting a border and background by hand here would drift from the theme the first time it
+    /// changed.
+    /// </remarks>
+    private void BeginEditingLink()
+    {
+        SourceText.Text = string.Empty;
+        SourceText.IsReadOnly = false;
+        SourceText.ClearValue(BorderThicknessProperty);
+        SourceText.ClearValue(BackgroundProperty);
+        SourceText.ClearValue(PaddingProperty);
+
+        AddLinkButton.Visibility = Visibility.Collapsed;
+        SaveLinkButton.Visibility = Visibility.Visible;
+
+        SourceText.Focus();
+    }
+
+    /// <summary>
+    /// Records what was typed, if it looks like a link.
+    /// </summary>
+    /// <remarks>
+    /// VALIDATED, NOT VERIFIED. This checks the shape of the text; it does not ask yt-dlp whether
+    /// the video exists, which would mean a network round trip inside a details dialog. A link that
+    /// is well-formed but wrong fails later, in "Edit…", where there is already a place to report
+    /// it - and where the owner can simply correct it.
+    /// </remarks>
+    private void SaveLink()
+    {
+        var url = SourceText.Text.Trim();
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+            (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+        {
+            SourceError.Text = "That does not look like a link. Paste the video's full address.";
+            SourceError.Visibility = Visibility.Visible;
+            return;
+        }
+
+        // Start and length are unknown for a link added after the fact - nothing recorded what was
+        // originally asked for. Zero is honest: "Edit…" prefills the link and leaves the section
+        // fields for the owner to fill in, which is the whole point of pressing it.
+        var source = new Whallee.Core.Configuration.ClipSource(
+            url, TimeSpan.Zero, TimeSpan.Zero, DateTimeOffset.Now);
+
+        try
+        {
+            _onLinkAdded?.Invoke(source);
+        }
+        catch (Exception ex)
+        {
+            SourceError.Text = $"Could not save that link. {ex.Message}";
+            SourceError.Visibility = Visibility.Visible;
+            return;
+        }
+
+        ShowRecorded(source);
     }
 
     /// <summary>"1:30" for a start offset. Local to this dialog; nothing else formats one.</summary>

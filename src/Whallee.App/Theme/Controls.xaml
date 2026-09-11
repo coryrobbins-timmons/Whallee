@@ -625,6 +625,16 @@
                                     Value="{StaticResource SurfaceOverlayBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
+                            <!-- OPACITY IS WHAT ACTUALLY GREYS IT. The Foreground setter below
+                                 looks sufficient and is not: a string Header is rendered by a
+                                 generated TextBlock, and this app's implicit TextBlock style sets
+                                 Foreground explicitly. An explicit style setter BEATS AN INHERITED
+                                 VALUE, so the header kept full contrast and a disabled item was
+                                 indistinguishable from an enabled one - reported 2026-09-11 as
+                                 "edit is not grayed out but the user can't select it". Opacity on
+                                 the chrome cannot be overridden that way. Both setters are kept:
+                                 Foreground is still correct for a non-string Header. -->
+                            <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
                             <Setter Property="Foreground"
                                     Value="{StaticResource TextDisabledBrush}" />
                         </Trigger>

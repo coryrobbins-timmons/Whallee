@@ -509,7 +509,11 @@ public partial class LibraryPage : UserControl
     {
         try
         {
-            new ClipDetailsDialog(tile.Path, _model.ConfiguredFfmpegPath, _model.SourceOf(tile.FileName))
+            new ClipDetailsDialog(
+                tile.Path, _model.ConfiguredFfmpegPath, _model.SourceOf(tile.FileName),
+                // Saved straight away rather than on Close: the dialog has no OK button, so there
+                // is no other moment to save on. Enables "Edit…" for this clip from here on.
+                source => _model.RecordSource(tile.FileName, source))
             {
                 Owner = Window.GetWindow(this)
             }.ShowDialog();
