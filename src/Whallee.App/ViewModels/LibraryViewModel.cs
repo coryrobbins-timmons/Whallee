@@ -95,6 +95,47 @@ public sealed class LibraryViewModel
         ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
     }
 
+    /// <summary>The genres, in the owner's order.</summary>
+    public IReadOnlyList<string> Genres => _sources.Genres;
+
+    /// <summary>The genre a clip is filed under, or null for ungrouped.</summary>
+    public string? GenreOf(string? fileName) => _sources.GenreOf(fileName);
+
+    /// <summary>Files a clip under a genre, or under none when <paramref name="genre"/> is null.</summary>
+    public void AssignGenre(string fileName, string? genre)
+    {
+        _sources.Assign(fileName, genre);
+        ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+    }
+
+    /// <summary>Renames a genre and retags its clips. True if there was one to rename.</summary>
+    public bool RenameGenre(string oldName, string newName)
+    {
+        if (!_sources.RenameGenre(oldName, newName)) return false;
+
+        ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+        return true;
+    }
+
+    /// <summary>
+    /// Removes a genre and unassigns its clips. NEVER deletes a video. True if there was one.
+    /// </summary>
+    public bool DeleteGenre(string name)
+    {
+        if (!_sources.DeleteGenre(name)) return false;
+
+        ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+        return true;
+    }
+
+    /// <summary>Moves a genre in the bar. Returns its new index, or -1 if it is not there.</summary>
+    public int MoveGenre(string name, int delta)
+    {
+        var to = _sources.MoveGenre(name, delta);
+        if (to >= 0) ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+        return to;
+    }
+
     public LibraryViewModel(EngineHost engine, UiReporter reporter)
     {
         _engine = engine;

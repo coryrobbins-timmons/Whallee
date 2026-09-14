@@ -10,6 +10,8 @@ internal sealed record ClipMenuActions(
     Action<ClipTile> PlayInDefaultPlayer,
     Action<ClipTile> Rename,
     Action<ClipTile> Edit,
+    Action<ClipTile, string?> SetGenre,
+    Action<ClipTile> NewGenre,
     Action<ClipTile> OpenFileLocation,
     Action<ClipTile> ShowDetails,
     Action<ClipTile> Delete);
@@ -35,7 +37,8 @@ internal sealed record ClipMenuActions(
 internal static class ClipContextMenu
 {
     public static void Populate(
-        ContextMenu menu, ClipTile tile, ClipMenuActions actions, bool canEdit)
+        ContextMenu menu, ClipTile tile, ClipMenuActions actions, bool canEdit,
+        IReadOnlyList<string> genres, string? currentGenre)
     {
         // Cleared, not appended to: this runs on every open, and the menu instance is reused.
         menu.Items.Clear();
@@ -56,6 +59,8 @@ internal static class ClipContextMenu
         if (canEdit) edit.Click += (_, _) => actions.Edit(tile);
         else edit.ToolTip = "Whallee has no record of where this clip came from.";
         menu.Items.Add(edit);
+
+        menu.Items.Add(BuildGenre(tile, actions, genres, currentGenre));
 
         Add(menu, "Open file location", () => actions.OpenFileLocation(tile));
         Add(menu, "Details…", () => actions.ShowDetails(tile));
@@ -93,6 +98,53 @@ internal static class ClipContextMenu
             var item = new MenuItem { Header = deviceName };
             item.Click += (_, _) => actions.Apply(tile, deviceName);
             parent.Items.Add(item);
+        }
+
+        return parent;
+    }
+
+    /// <summary>
+    /// The Genre submenu, built from live state exactly as "Apply to" is.
+    /// </summary>
+    /// <remarks>
+    /// The current genre is TICKED rather than merely listed - the menu is the only place the
+    /// owner can see what a clip is filed under without opening Details.
+    ///
+    /// "Remove from genre" is offered only when there is something to remove, so the menu does not
+    /// advertise an action that would do nothing.
+    /// </remarks>
+    private static MenuItem BuildGenre(
+        ClipTile tile, ClipMenuActions actions, IReadOnlyList<string> genres, string? currentGenre)
+    {
+        var parent = new MenuItem { Header = "Genre" };
+
+        foreach (var genre in genres)
+        {
+            var item = new MenuItem
+            {
+                Header = genre,
+                IsCheckable = true,
+                IsChecked = Whallee.Core.Configuration.ClipGenres.Same(genre, currentGenre)
+            };
+
+            // CAPTURED IN THE CLOSURE, like every other item here: a ContextMenu lives in its own
+            // visual tree, so VisualTreeHelper cannot walk from a MenuItem back to the tile.
+            var captured = genre;
+            item.Click += (_, _) => actions.SetGenre(tile, captured);
+            parent.Items.Add(item);
+        }
+
+        if (genres.Count > 0) parent.Items.Add(new Separator());
+
+        var create = new MenuItem { Header = "New genre…" };
+        create.Click += (_, _) => actions.NewGenre(tile);
+        parent.Items.Add(create);
+
+        if (currentGenre is not null)
+        {
+            var clear = new MenuItem { Header = "Remove from genre" };
+            clear.Click += (_, _) => actions.SetGenre(tile, null);
+            parent.Items.Add(clear);
         }
 
         return parent;

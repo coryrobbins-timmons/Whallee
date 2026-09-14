@@ -39,6 +39,8 @@ public partial class LibraryPage : UserControl
             PlayInDefaultPlayer: PlayInDefaultPlayer,
             Rename: RenameClip,
             Edit: EditClip,
+            SetGenre: SetGenre,
+            NewGenre: NewGenre,
             OpenFileLocation: OpenFileLocation,
             ShowDetails: ShowDetails,
             Delete: DeleteClip);
@@ -393,7 +395,8 @@ public partial class LibraryPage : UserControl
             }
 
             ClipContextMenu.Populate(
-                button.ContextMenu, tile, _menuActions, _model.SourceOf(tile.FileName) is not null);
+                button.ContextMenu, tile, _menuActions, _model.SourceOf(tile.FileName) is not null,
+                _model.Genres, _model.GenreOf(tile.FileName));
         }
         catch (Exception ex)
         {
@@ -505,6 +508,43 @@ public partial class LibraryPage : UserControl
     /// Synchronous: the dialog does its own probing off-thread and shows instantly, so there is
     /// nothing to await here. Still wrapped - a menu Click is a Dispatcher callback.
     /// </summary>
+    /// <summary>Rebuilds the genre bar and re-applies the current filter. Filled in by Task 5.</summary>
+    private void RefreshGenreView() { }
+
+    /// <summary>Files a clip under a genre, or under none when <paramref name="genre"/> is null.</summary>
+    private void SetGenre(ClipTile tile, string? genre)
+    {
+        try
+        {
+            _model.AssignGenre(tile.FileName, genre);
+            RefreshGenreView();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not set the genre for {tile.FileName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Creates a genre and files this clip under it in one step.</summary>
+    private void NewGenre(ClipTile tile)
+    {
+        try
+        {
+            var name = Dialogs.TextPromptDialog.Ask(
+                Window.GetWindow(this), "New genre", "Genre name", null,
+                value => Whallee.Core.Configuration.ClipGenres.Validate(value, _model.Genres));
+
+            if (name is null) return;
+
+            _model.AssignGenre(tile.FileName, name);
+            RefreshGenreView();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not create that genre: {ex.Message}");
+        }
+    }
+
     private void ShowDetails(ClipTile tile)
     {
         try
