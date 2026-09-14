@@ -156,7 +156,7 @@ public sealed class EngineHost : IDisposable
         if (string.IsNullOrEmpty(Config.LibraryFolder))
         {
             Config.LibraryFolder =
-                @"C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Whallee\Library";
+                @"C:\Users\cory.robbins\Documents\coryrob\Whallee\Library";
             Config.MpvPath =
                 @"C:\Users\cory.robbins\AppData\Local\Programs\Lively Wallpaper\Plugins\Mpv\mpv.exe";
         }

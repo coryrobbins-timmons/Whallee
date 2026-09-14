@@ -193,7 +193,7 @@ static int RunAll()
     if (string.IsNullOrEmpty(config.LibraryFolder))
     {
         config.LibraryFolder =
-            @"C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Whallee\Library";
+            @"C:\Users\cory.robbins\Documents\coryrob\Whallee\Library";
         config.MpvPath =
             @"C:\Users\cory.robbins\AppData\Local\Programs\Lively Wallpaper\Plugins\Mpv\mpv.exe";
     }
