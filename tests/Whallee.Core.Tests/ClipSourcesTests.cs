@@ -2,6 +2,7 @@ using Whallee.Core.Configuration;
 
 namespace Whallee.Core.Tests;
 
+
 public class ClipSourcesTests
 {
     private static ClipSource Source(string url = "https://www.youtube.com/watch?v=abc") =>
@@ -184,5 +185,257 @@ public class ClipSourcesTests
     {
         Assert.Empty(ClipSourceStore.Load(
             Path.Combine(Path.GetTempPath(), $"whallee-absent-{Guid.NewGuid():N}.json")).Entries);
+    }
+
+    [Fact]
+    public void AssigningAGenreRecordsItAndListsIt()
+    {
+        var index = new ClipSourceIndex();
+        index.Record("Clip.mp4", Source());
+
+        index.Assign("Clip.mp4", "Cars");
+
+        Assert.Equal("Cars", index.GenreOf("Clip.mp4"));
+        Assert.Equal(new[] { "Cars" }, index.Genres);
+    }
+
+    /// <summary>
+    /// A clip can be tagged before it has any recorded source - most of the library was added from
+    /// local files and has no link at all. Assign must create the entry rather than do nothing.
+    /// </summary>
+    [Fact]
+    public void TagsAClipThatHasNoRecordedSource()
+    {
+        var index = new ClipSourceIndex();
+
+        index.Assign("Local.mp4", "Nature");
+
+        Assert.Equal("Nature", index.GenreOf("Local.mp4"));
+
+        // The entry now exists with an empty URL, which is what ClipDetailsDialog already renders
+        // as "Not recorded" - tagging a clip must not invent a source for it.
+        Assert.NotNull(index.Get("Local.mp4"));
+        Assert.Equal(string.Empty, index.Get("Local.mp4")!.Url);
+    }
+
+    [Fact]
+    public void AssigningNullUnassigns()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("Clip.mp4", "Cars");
+
+        index.Assign("Clip.mp4", null);
+
+        Assert.Null(index.GenreOf("Clip.mp4"));
+    }
+
+    /// <summary>
+    /// The genre survives losing its last clip: otherwise removing a clip from a genre would make
+    /// the tab vanish underneath the owner mid-use.
+    /// </summary>
+    [Fact]
+    public void AGenreOutlivesItsLastClip()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("Clip.mp4", "Cars");
+
+        index.Assign("Clip.mp4", null);
+
+        Assert.Equal(new[] { "Cars" }, index.Genres);
+    }
+
+    [Fact]
+    public void AssigningAgainMovesTheClipBetweenGenres()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("Clip.mp4", "Cars");
+
+        index.Assign("Clip.mp4", "Dystopia");
+
+        Assert.Equal("Dystopia", index.GenreOf("Clip.mp4"));
+        Assert.Equal(new[] { "Cars", "Dystopia" }, index.Genres);
+        Assert.Empty(index.FileNamesIn("Cars"));
+    }
+
+    [Fact]
+    public void AssigningAnExistingGenreDoesNotListItTwice()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "cars");
+
+        Assert.Single(index.Genres);
+    }
+
+    [Fact]
+    public void ListsTheClipsInAGenre()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "Cars");
+        index.Assign("C.mp4", "Nature");
+
+        Assert.Equal(new[] { "A.mp4", "B.mp4" }, index.FileNamesIn("Cars").OrderBy(n => n));
+    }
+
+    /// <summary>Null lists the ungrouped clips, which is what the "Ungrouped" tab shows.</summary>
+    [Fact]
+    public void ListsUngroupedClipsForANullGenre()
+    {
+        var index = new ClipSourceIndex();
+        index.Record("Untagged.mp4", Source());
+        index.Assign("Tagged.mp4", "Cars");
+
+        Assert.Equal(new[] { "Untagged.mp4" }, index.FileNamesIn(null));
+    }
+
+    /// <summary>Renaming must retag EVERY clip, not just the list entry.</summary>
+    [Fact]
+    public void RenamingAGenreRetagsAllOfItsClips()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "Cars");
+        index.Assign("C.mp4", "Nature");
+
+        Assert.True(index.RenameGenre("Cars", "Driving"));
+
+        Assert.Equal("Driving", index.GenreOf("A.mp4"));
+        Assert.Equal("Driving", index.GenreOf("B.mp4"));
+        Assert.Equal("Nature", index.GenreOf("C.mp4"));
+    }
+
+    /// <summary>A rename keeps the tab where it was; the owner did not ask to reorder.</summary>
+    [Fact]
+    public void RenamingKeepsThePositionInTheBar()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "Dystopia");
+        index.Assign("C.mp4", "Nature");
+
+        index.RenameGenre("Dystopia", "Bleak");
+
+        Assert.Equal(new[] { "Cars", "Bleak", "Nature" }, index.Genres);
+    }
+
+    [Fact]
+    public void RenamingSomethingAbsentChangesNothing()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+
+        Assert.False(index.RenameGenre("Missing", "Whatever"));
+        Assert.Equal(new[] { "Cars" }, index.Genres);
+    }
+
+    /// <summary>
+    /// THE ONE THAT MUST NEVER REGRESS: deleting a genre unassigns its clips and removes the tab.
+    /// It does not remove the clips from the index and it never touches a file on disk.
+    /// </summary>
+    [Fact]
+    public void DeletingAGenreOnlyUnassignsItsClips()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "Nature");
+
+        Assert.True(index.DeleteGenre("Cars"));
+
+        Assert.Null(index.GenreOf("A.mp4"));
+        Assert.NotNull(index.Get("A.mp4"));
+        Assert.Equal(new[] { "Nature" }, index.Genres);
+        Assert.Equal("Nature", index.GenreOf("B.mp4"));
+    }
+
+    [Fact]
+    public void DeletingSomethingAbsentChangesNothing()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+
+        Assert.False(index.DeleteGenre("Missing"));
+        Assert.Equal(new[] { "Cars" }, index.Genres);
+    }
+
+    [Fact]
+    public void MovesAGenreInTheBar()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "Nature");
+
+        Assert.Equal(0, index.MoveGenre("Nature", -1));
+        Assert.Equal(new[] { "Nature", "Cars" }, index.Genres);
+    }
+
+    /// <summary>A rename of the FILE must carry the genre across, like the source link.</summary>
+    [Fact]
+    public void RenamingAFileKeepsItsGenre()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("Old.mp4", "Cars");
+
+        index.Rename("Old.mp4", "New.mp4");
+
+        Assert.Equal("Cars", index.GenreOf("New.mp4"));
+    }
+
+    [Fact]
+    public void GenresAndAssignmentsSurviveARoundTripThroughDisk()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"whallee-genres-{Guid.NewGuid():N}.json");
+        try
+        {
+            var written = new ClipSourceIndex();
+            written.Record("Clip.mp4", Source());
+            written.Assign("Clip.mp4", "Cars");
+            written.Assign("Other.mp4", "Nature");
+            written.MoveGenre("Nature", -1);
+
+            ClipSourceStore.Save(written, path);
+            var read = ClipSourceStore.Load(path);
+
+            Assert.Equal(new[] { "Nature", "Cars" }, read.Genres);
+            Assert.Equal("Cars", read.GenreOf("Clip.mp4"));
+            Assert.Equal("https://www.youtube.com/watch?v=abc", read.Get("Clip.mp4")!.Url);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch (Exception) { }
+        }
+    }
+
+    /// <summary>
+    /// THE MIGRATION CHECK. sources.json was a BARE MAP before genres existed, and the owner already
+    /// has recorded links in that shape. Discarding them would look exactly like a bug in Details.
+    /// </summary>
+    [Fact]
+    public void LoadsTheOldBareMapFormatAndKeepsTheLinks()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"whallee-old-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, """
+                {
+                  "City Skyline.mp4": {
+                    "Url": "https://www.youtube.com/watch?v=old",
+                    "Start": "00:01:30",
+                    "Length": "00:00:30",
+                    "ImportedUtc": "2026-09-11T12:00:00+00:00"
+                  }
+                }
+                """);
+
+            var read = ClipSourceStore.Load(path);
+
+            Assert.Equal("https://www.youtube.com/watch?v=old", read.Get("City Skyline.mp4")!.Url);
+            Assert.Empty(read.Genres);
+            Assert.Null(read.GenreOf("City Skyline.mp4"));
+        }
+        finally
+        {
+            try { File.Delete(path); } catch (Exception) { }
+        }
     }
 }
