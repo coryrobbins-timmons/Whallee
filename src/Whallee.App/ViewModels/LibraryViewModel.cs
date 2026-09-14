@@ -400,7 +400,11 @@ public sealed class LibraryViewModel
         }
 
         foreach (var file in files)
-            Tiles.Add(new ClipTile { Path = file });
+        {
+            var tile = new ClipTile { Path = file };
+            tile.Genre = _sources.GenreOf(tile.FileName);
+            Tiles.Add(tile);
+        }
 
         if (files.Count == 0)
             _reporter.Report($"no clips found in {folder}");

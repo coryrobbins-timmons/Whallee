@@ -19,6 +19,11 @@ public partial class LibraryPage : UserControl
     private bool _loaded;
     private ClipMenuActions _menuActions = null!;   // assigned in the constructor
 
+    /// <summary>
+    /// The genre being shown: null for All, GenreBar.Ungrouped for the untagged ones.
+    /// </summary>
+    private string? _selectedGenre;
+
     public LibraryPage(EngineHost engine, UiReporter reporter)
     {
         InitializeComponent();
@@ -78,6 +83,7 @@ public partial class LibraryPage : UserControl
         try
         {
             await _model.LoadAsync();
+            RefreshGenreView();
         }
         catch (Exception ex)
         {
@@ -116,6 +122,7 @@ public partial class LibraryPage : UserControl
             }
 
             await _model.LoadAsync();
+            RefreshGenreView();
         }
         catch (Exception ex)
         {
@@ -223,6 +230,7 @@ public partial class LibraryPage : UserControl
                 }
 
                 await _model.LoadAsync();
+                RefreshGenreView();
 
                 // A THEMED CARD, NOT A MessageBox. The old one was a stock system dialog - light
                 // chrome in a dark app, four lines of prose, and a modal interruption for news
@@ -508,8 +516,154 @@ public partial class LibraryPage : UserControl
     /// Synchronous: the dialog does its own probing off-thread and shows instantly, so there is
     /// nothing to await here. Still wrapped - a menu Click is a Dispatcher callback.
     /// </summary>
-    /// <summary>Rebuilds the genre bar and re-applies the current filter. Filled in by Task 5.</summary>
-    private void RefreshGenreView() { }
+    /// <summary>Rebuilds the bar and re-applies the filter and grouping.</summary>
+    private void RefreshGenreView()
+    {
+        // A genre the owner just deleted or renamed must not stay selected, or the page would show
+        // an empty library with no way back other than clicking All.
+        if (_selectedGenre is not null && _selectedGenre != GenreBar.Ungrouped &&
+            !_model.Genres.Any(g => Whallee.Core.Configuration.ClipGenres.Same(g, _selectedGenre)))
+            _selectedGenre = null;
+
+        GenreBar.Populate(
+            GenreBarHost, _model.Genres, _selectedGenre,
+            hasUngrouped: _model.Tiles.Any(t => t.Genre is null),
+            new GenreBarActions(SelectGenre, RenameGenre, DeleteGenre, MoveGenre));
+
+        ApplyGenreView();
+    }
+
+    /// <summary>
+    /// Points the tile host at a filtered, optionally grouped view of the clips.
+    /// </summary>
+    /// <remarks>
+    /// A CollectionViewSource rather than a second collection: TileHost is an ItemsControl, which
+    /// supports both filtering and GroupStyle, so the dividers come from WPF instead of being laid
+    /// out by hand - and a hand-built divider would not survive a re-sort.
+    ///
+    /// GROUPED ONLY IN "All". Inside one genre every heading would say the same thing.
+    /// </remarks>
+    private void ApplyGenreView()
+    {
+        var view = new System.Windows.Data.CollectionViewSource { Source = _model.Tiles };
+
+        if (_selectedGenre is null)
+        {
+            view.GroupDescriptions.Add(
+                new System.Windows.Data.PropertyGroupDescription(nameof(ClipTile.Genre)));
+        }
+        else
+        {
+            var wanted = _selectedGenre;
+            view.View.Filter = item => item is ClipTile tile && (wanted == GenreBar.Ungrouped
+                ? tile.Genre is null
+                : Whallee.Core.Configuration.ClipGenres.Same(tile.Genre, wanted));
+        }
+
+        TileHost.ItemsSource = view.View;
+
+        // THE PANEL MUST FOLLOW THE GROUPING. With grouping on, ItemsPanel arranges the GROUPS, so
+        // leaving it a WrapPanel lays the genres out side by side and stacks the tiles vertically
+        // inside each one.
+        TileHost.GroupStyle.Clear();
+
+        if (_selectedGenre is null)
+        {
+            TileHost.ItemsPanel = (ItemsPanelTemplate)FindResource("GroupedTilePanel");
+            TileHost.GroupStyle.Add((GroupStyle)FindResource("GenreGroupStyle"));
+        }
+        else
+        {
+            TileHost.ItemsPanel = (ItemsPanelTemplate)FindResource("FlatTilePanel");
+        }
+    }
+
+    private void SelectGenre(string? genre)
+    {
+        _selectedGenre = genre;
+        RefreshGenreView();
+    }
+
+    private void RenameGenre(string genre)
+    {
+        try
+        {
+            var name = Dialogs.TextPromptDialog.Ask(
+                Window.GetWindow(this), "Rename genre", "Genre name", genre,
+                value => Whallee.Core.Configuration.ClipGenres.Validate(
+                    value, _model.Genres, currentName: genre));
+
+            if (name is null) return;
+
+            if (_model.RenameGenre(genre, name))
+            {
+                // Follow the rename rather than falling back to All: the owner was looking at this
+                // genre and still is.
+                if (Whallee.Core.Configuration.ClipGenres.Same(_selectedGenre, genre))
+                    _selectedGenre = name;
+
+                RetagLoadedTiles(genre, name);
+                RefreshGenreView();
+            }
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not rename {genre}: {ex.Message}");
+        }
+    }
+
+    private void DeleteGenre(string genre)
+    {
+        try
+        {
+            // SAYS THE CLIPS SURVIVE. This is the one action in the bar that touches many clips at
+            // once, and "Delete" beside a library of videos reads as destructive unless told
+            // otherwise.
+            if (!Dialogs.MessageDialog.Confirm(
+                    Window.GetWindow(this), $"Delete the genre {genre}?",
+                    "Its clips stay in your library — they just stop being filed under it.",
+                    confirmText: "Delete genre"))
+                return;
+
+            if (_model.DeleteGenre(genre))
+            {
+                RetagLoadedTiles(genre, null);
+                RefreshGenreView();
+            }
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not delete {genre}: {ex.Message}");
+        }
+    }
+
+    private void MoveGenre(string genre, int delta)
+    {
+        try
+        {
+            _model.MoveGenre(genre, delta);
+            RefreshGenreView();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not move {genre}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Updates the tiles already on screen after a genre is renamed or deleted.
+    /// </summary>
+    /// <remarks>
+    /// The index is the record; these are the copies the grouping reads. Re-running LoadAsync would
+    /// be correct too and costs a full thumbnail pass, which is seconds for a change that moved no
+    /// files.
+    /// </remarks>
+    private void RetagLoadedTiles(string from, string? to)
+    {
+        foreach (var tile in _model.Tiles)
+            if (Whallee.Core.Configuration.ClipGenres.Same(tile.Genre, from))
+                tile.Genre = to;
+    }
 
     /// <summary>Files a clip under a genre, or under none when <paramref name="genre"/> is null.</summary>
     private void SetGenre(ClipTile tile, string? genre)
@@ -517,6 +671,7 @@ public partial class LibraryPage : UserControl
         try
         {
             _model.AssignGenre(tile.FileName, genre);
+            tile.Genre = genre;
             RefreshGenreView();
         }
         catch (Exception ex)
@@ -537,6 +692,7 @@ public partial class LibraryPage : UserControl
             if (name is null) return;
 
             _model.AssignGenre(tile.FileName, name);
+            tile.Genre = name;
             RefreshGenreView();
         }
         catch (Exception ex)

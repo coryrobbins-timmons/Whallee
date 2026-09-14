@@ -5,12 +5,48 @@
              Style="{StaticResource AppPageStyle}">
     <UserControl.Resources>
         <conv:PathToImageConverter x:Key="PathToImage" />
+
+        <!-- Tiles, when the library is one flat list. -->
+        <ItemsPanelTemplate x:Key="FlatTilePanel">
+            <WrapPanel />
+        </ItemsPanelTemplate>
+
+        <!-- GROUPS stack vertically; the WrapPanel moves inside the group, below. Getting this
+             backwards lays the genres out side by side and stacks the tiles. -->
+        <ItemsPanelTemplate x:Key="GroupedTilePanel">
+            <StackPanel Orientation="Vertical" />
+        </ItemsPanelTemplate>
+
+        <GroupStyle x:Key="GenreGroupStyle">
+            <GroupStyle.Panel>
+                <ItemsPanelTemplate>
+                    <WrapPanel />
+                </ItemsPanelTemplate>
+            </GroupStyle.Panel>
+            <GroupStyle.HeaderTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="0,12,0,8">
+                        <!-- Name is the genre. An ungrouped group's Name is null, which would
+                             otherwise render as a blank heading above real clips. -->
+                        <TextBlock Text="{Binding Name, TargetNullValue=Ungrouped}"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" />
+                        <Border Height="1" Margin="0,6,0,0"
+                                Background="{StaticResource StrokeBrush}" />
+                    </StackPanel>
+                </DataTemplate>
+            </GroupStyle.HeaderTemplate>
+        </GroupStyle>
     </UserControl.Resources>
     <Grid>
+        <!-- ONE PER ROW USED BELOW, and count them when adding another. WPF does not complain about
+             a Grid.Row past the last definition - it silently clamps the content into the last row,
+             where it draws ON TOP of what is already there. That shipped twice on 2026-09-11. -->
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />  <!-- toolbar       -->
+            <RowDefinition Height="Auto" />  <!-- import status -->
+            <RowDefinition Height="Auto" />  <!-- genre bar     -->
+            <RowDefinition Height="*" />     <!-- clips         -->
         </Grid.RowDefinitions>
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
@@ -66,11 +102,12 @@
             </Grid>
         </Border>
 
-        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">
+        <!-- Collapsed until a genre exists, so it costs nothing before the owner tags anything.
+             Populated in code: its buttons come from live state, exactly as ClipContextMenu does. -->
+        <WrapPanel x:Name="GenreBarHost" Grid.Row="2" Margin="0,0,0,12" Visibility="Collapsed" />
+
+        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">
             <ItemsControl x:Name="TileHost">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <!--

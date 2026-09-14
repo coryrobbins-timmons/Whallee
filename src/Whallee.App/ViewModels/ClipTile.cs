@@ -38,6 +38,9 @@ public sealed class ClipTile : INotifyPropertyChanged
         set { _thumbnailPath = value; Raise(); }
     }
 
+    /// <summary>The genre this clip is filed under, or null. Read by the library's grouping.</summary>
+    public string? Genre { get; set; }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void Raise([CallerMemberName] string? name = null) =>
