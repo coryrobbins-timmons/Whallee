@@ -20,11 +20,17 @@ Guidance for Claude Code working in this repository.
 context menu (Apply to / Play / Rename / Open file location / Details / Delete), the settings page,
 Start with Windows, the app and tray icon, and pause-on-fullscreen / pause-on-battery. That closes
 **Plan 2 tasks 9, 10 and 13**. Specs and plans for each are in the sibling workspace under
-`..\Visual Studio Code\Claude Code\docs\superpowers\`.
+`C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Visual Studio Code\Claude Code\docs\superpowers\`.
 
 Still open, in the order they were last judged worth doing:
 
-- **Import latency** — item 2 below. Untouched.
+- **Import latency** — item 2 below. **Partly overtaken 2026-09-14:** a two-month-stale `yt-dlp` was
+  resolving every video through YouTube's `android_vr` client, which googlevideo serves about a
+  minute of and then refuses with 403. That made strategy A fail on every import and forced the slow
+  strategy-C fallback. Updating `yt-dlp` made A work — full quality, any timestamp — so the ~60 s cap
+  was never this network's, despite what several comments used to claim in capitals. The process-launch
+  cost in item 2 still stands. **`ImportPlanner.ContentCeiling` now binds only the strategy-C
+  fallback**; re-measure before trusting it if C ever becomes the common path again.
 - **Format selection for bandwidth** — undecided. 4K costs ~144 MiB for a 57 s loop that 1080p would
   deliver in ~10 MiB. Now has somewhere to live: the settings page exists.
 - **Per-display pause** — deferred deliberately when pause was built. It cannot reuse
@@ -53,7 +59,7 @@ improvements, not defects.
    estimate, because knowing it beforehand cannot change what the user does. The start-time field
    was **kept**, not dropped - it is inert on this network but the 403s look specific to the
    corporate egress IP, so it may work from home. Design:
-   `..\Visual Studio Code\Claude Code\docs\superpowers\specs\2026-09-02-url-dialog-redesign-design.md`.
+   `C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Visual Studio Code\Claude Code\docs\superpowers\specs\2026-09-02-url-dialog-redesign-design.md`.
 2. **Import latency is process launches, not bandwidth.** Measured from a real import: the 22 MiB
    download took ~0.5 s; `yt-dlp` resolving the URL took ~6 s, on top of a separate probe at *Look
    up*. The feature launches `yt-dlp` **twice** for overlapping information - `--print` for
@@ -82,7 +88,7 @@ this greenfield repo. No git remote.
 | `tests/Whallee.Core.Tests` | Unit tests for pure logic only. |
 
 Plans and the design spec live in the sibling workspace at
-`..\Visual Studio Code\Claude Code\docs\superpowers\`.
+`C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Visual Studio Code\Claude Code\docs\superpowers\`.
 
 ### The theme (`src/Whallee.App/Theme/`)
 
@@ -140,6 +146,63 @@ or I/O-bound may run on a thread that owns host windows. Background it and marsh
 Note the two `MsgWaitForMultipleObjectsEx` loops in `MessagePump` map a `0` return to **opposite**
 meanings — with `nCount = 1` it means the handle signalled; with `nCount = 0` it means input is
 available. Do not "unify" them.
+
+## Library genres, and the per-clip record they live in
+
+Added 2026-09-11 (source links) and 2026-09-14 (genres). Spec and plan are in the sibling workspace
+under `docs\superpowers\`.
+
+**`%LOCALAPPDATA%\Whallee\sources.json` holds one record per clip, keyed by BARE FILE NAME** — the
+same convention as `DisplayAssignment.PinnedPath`, because the library folder is configurable and an
+absolute path would break the moment it moved. Each record carries where the clip was downloaded
+from (URL, requested start and length) and its genre. The file also carries the owner's **ordered
+genre list**, stored rather than derived: the order is theirs and cannot be recovered from the
+assignments, and a genre must survive having no clips in it or creating one would make the tab
+vanish underneath them.
+
+**It lives beside `config.json`, not in the library folder**, because the owner browses the library
+in Explorer ("Open file location" is a menu item) and a bookkeeping file among their videos is
+clutter. The cost is that moving the library leaves links and genres behind.
+
+**The file has two on-disk shapes and `Load` must keep reading both.** Before genres it was a bare
+map of file name to record; it is now an object with `clips` and `genres`. The discriminator is a
+**case-insensitive** scan for a `clips` property — `JsonDocument.TryGetProperty` is case-sensitive
+and does NOT consult `JsonSerializerOptions.PropertyNameCaseInsensitive`, while the writer emits
+`Clips`. Getting that wrong sends every round trip through the legacy parser; it was caught in
+review on 2026-09-14 before it shipped. Silent loss here surfaces as "Not recorded" in Details and
+reads as an unrelated bug.
+
+**Keep the index in step with renames and deletes**, exactly as pins are by `ClipRename.Repoint`. It
+follows a file rename and is dropped on delete — but only on paths where the clip is actually gone.
+Erasing it before a recycle that then fails loses the owner's filing while leaving the video.
+
+Things that were got wrong once here and should not be re-derived:
+
+- **`ItemsPanel` arranges the GROUPS when grouping is on**, not the items. The tiles' `WrapPanel`
+  therefore lives in `GroupStyle.Panel`, and `LibraryPage` swaps between a flat `WrapPanel` and a
+  vertical `StackPanel` in code. Backwards lays the genres out side by side with clips stacked under
+  each one.
+- **Group order needs an explicit sort.** `PropertyGroupDescription` alone orders groups by whichever
+  item it meets first, so dragging tabs would reorder the bar and change nothing in the "All" view.
+  `GenreOrderComparer` keys off the stored order, ungrouped last.
+- **A re-import must carry the clip's genre across.** `Record` replaces the whole entry, so building
+  a fresh record from the import alone silently unfiles the clip.
+- **Setting `Style` to null BLOCKS implicit-style lookup** rather than falling back to it, so an
+  unstyled tab renders as a native light-chrome button beside the dark ones. Ask for the implicit
+  style by `FindResource(typeof(Button))`.
+- **A disabled `MenuItem` needs opacity, not just `Foreground`.** The implicit `TextBlock` style sets
+  a colour explicitly, and an explicit style setter beats an inherited value — so a disabled item
+  looked fully enabled while refusing clicks.
+- **`GenreBar.Ungrouped` is a sentinel**, never stored, renamed or deleted; its NUL prefix is what
+  makes it uncollidable with a typed name. **Writing that escape into a source file through a shell
+  heredoc turns it into a literal NUL byte** — it has happened twice. Use the editing tools, then
+  check.
+- **Dragging replaced "Move left" / "Move right"** on 2026-09-14. The drop index comes from which
+  half of the target tab the pointer is over, and is an index among *genres*, not among the panel's
+  children — "All" is child 0, "Ungrouped" and "+ New genre" sit at the end.
+
+**Deleting a genre never deletes video.** It unassigns its clips and removes the tab; the
+confirmation says so, and that wording is load-bearing.
 
 ## Standing rulings from the owner
 
@@ -218,8 +281,10 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   random pick" branch is a **live, exercised path**, not a defensive one; and
   `LibraryViewModel.DeleteClipAsync`'s optimistic order (recycle first, clear config after) is
   right, with its `IOException` escalation being genuinely rare rather than the expected route.
-- `Documents` is OneDrive-redirected, so `SpecialFolder.MyDocuments` is *not* local `Documents`, and
-  library files may be cloud-only placeholders.
+- `Documents` is OneDrive-redirected, so `SpecialFolder.MyDocuments` is *not* local `Documents`.
+  **The repo and its `Library` now live on the local path** (`C:\Users\cory.robbins\Documents\coryrob\Whallee`),
+  moved out of OneDrive on 2026-09-14, so library files are no longer cloud-only placeholders.
+  Clips imported from elsewhere on the machine still can be.
 - **SentinelOne is the on-access scanner here, not Defender** (Defender real-time protection is
   *off*). It opens a file for a few milliseconds right after that file is written or renamed into
   place, anywhere on this machine - `%LOCALAPPDATA%\Temp` included, so tests are not exempt. While
@@ -247,9 +312,10 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   `bin\Release\`:
   - `bin\` is git-ignored, so `git clean -fdx` would delete it and autostart would fail at the next
     logon with nothing pointing at the cause.
-  - The repo is under OneDrive-redirected Documents, which on this machine has a history of locking
-    files and creating cloud placeholders. An exe Windows launches at logon should not depend on a
-    sync client.
+  - Historically the repo sat under OneDrive-redirected Documents, which has a history of locking
+    files and creating cloud placeholders. It was moved to local `Documents` on 2026-09-14, but the
+    separate installed copy stands regardless: an exe Windows launches at logon should not be the
+    one you rebuild.
   - Most practically: if the autostarted copy were the one you rebuild, Whallee would be running at
     every logon holding the DLLs you are about to overwrite, and **MSB3021/MSB3027 lock failures
     would become the default build experience.** Separating them keeps `bin\` free.
