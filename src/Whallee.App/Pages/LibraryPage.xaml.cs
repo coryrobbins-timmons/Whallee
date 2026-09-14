@@ -218,10 +218,23 @@ public partial class LibraryPage : UserControl
                 // hand. It feeds the Source row in Details and prefills "Edit…".
                 try
                 {
+                    var landed = System.IO.Path.GetFileName(outcome.LibraryPath!);
+
+                    // THE GENRE IS CARRIED ACROSS, and must be: Record REPLACES the whole entry, so
+                    // a re-import ("Edit…") that lands under the same name would otherwise reset
+                    // Genre to its null default and quietly drop the clip into Ungrouped. A genre is
+                    // the owner's filing, not source metadata, and survives a re-import.
+                    //
+                    // The landing name is asked first (the usual case: the replacement overwrote the
+                    // clip that was tagged), then the name being replaced, which covers a re-import
+                    // that landed under a DIFFERENT name - the tag follows the clip, not the file.
+                    var genre = _model.GenreOf(landed)
+                                ?? (replacing is null ? null : _model.GenreOf(replacing));
+
                     _model.RecordSource(
-                        System.IO.Path.GetFileName(outcome.LibraryPath!),
+                        landed,
                         new ClipSource(request.Url, request.Start,
-                                       request.Length, DateTimeOffset.Now));
+                                       request.Length, DateTimeOffset.Now, genre));
                 }
                 catch (Exception ex)
                 {
@@ -519,15 +532,24 @@ public partial class LibraryPage : UserControl
     /// <summary>Rebuilds the bar and re-applies the filter and grouping.</summary>
     private void RefreshGenreView()
     {
+        var hasUngrouped = _model.Tiles.Any(t => t.Genre is null);
+
         // A genre the owner just deleted or renamed must not stay selected, or the page would show
         // an empty library with no way back other than clicking All.
-        if (_selectedGenre is not null && _selectedGenre != GenreBar.Ungrouped &&
-            !_model.Genres.Any(g => Whallee.Core.Configuration.ClipGenres.Same(g, _selectedGenre)))
+        //
+        // THE Ungrouped SENTINEL IS SUBJECT TO THE SAME RESET, via hasUngrouped. Its tab is only
+        // drawn while something is actually untagged, so tagging the last untagged clip while
+        // standing on it removes the tab underneath the owner - leaving an empty grid with no tab
+        // highlighted, recoverable only by finding All.
+        if (_selectedGenre is not null &&
+            (_selectedGenre == GenreBar.Ungrouped
+                ? !hasUngrouped
+                : !_model.Genres.Any(g => Whallee.Core.Configuration.ClipGenres.Same(g, _selectedGenre))))
             _selectedGenre = null;
 
         GenreBar.Populate(
             GenreBarHost, _model.Genres, _selectedGenre,
-            hasUngrouped: _model.Tiles.Any(t => t.Genre is null),
+            hasUngrouped: hasUngrouped,
             new GenreBarActions(SelectGenre, RenameGenre, DeleteGenre, MoveGenre));
 
         ApplyGenreView();
@@ -542,6 +564,16 @@ public partial class LibraryPage : UserControl
     /// out by hand - and a hand-built divider would not survive a re-sort.
     ///
     /// GROUPED ONLY IN "All". Inside one genre every heading would say the same thing.
+    ///
+    /// THE GROUPS ARE SORTED, AND HAVE TO BE. A PropertyGroupDescription alone orders the headings
+    /// by whichever clip it meets first - i.e. by library file order - so "Move left"/"Move right"
+    /// would reorder the bar and change nothing in the one view that shows every genre, and
+    /// Ungrouped could land in the middle. CustomSort puts the tiles in the owner's genre order
+    /// (untagged last, per the spec, so untagged clips never push the filed ones off the top) and
+    /// the groups follow, because WPF groups in the view's order.
+    ///
+    /// SORTS THE VIEW, NEVER _model.Tiles. That collection is the library's own order and other
+    /// code reads it.
     /// </remarks>
     private void ApplyGenreView()
     {
@@ -551,6 +583,9 @@ public partial class LibraryPage : UserControl
         {
             view.GroupDescriptions.Add(
                 new System.Windows.Data.PropertyGroupDescription(nameof(ClipTile.Genre)));
+
+            if (view.View is System.Windows.Data.ListCollectionView sortable)
+                sortable.CustomSort = new GenreOrderComparer(_model.Genres, _model.Tiles);
         }
         else
         {
@@ -824,6 +859,56 @@ public partial class LibraryPage : UserControl
         catch (Exception ex)
         {
             _reporter.Report($"could not delete {tile.FileName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Orders tiles by their genre's position in the owner's bar, with the untagged ones last.
+    /// </summary>
+    /// <remarks>
+    /// EXISTS SO THE HEADINGS UNDER "All" FOLLOW "Move left"/"Move right". WPF builds the groups in
+    /// the view's order, so ordering the ITEMS by genre rank is what orders the HEADINGS - there is
+    /// no "sort the groups" knob to reach for instead.
+    ///
+    /// UNGROUPED SORTS LAST, not first and not alphabetically among the genres: the spec puts
+    /// untagged clips at the bottom so they cannot push the filed ones off the top of the page.
+    ///
+    /// TIES BREAK ON LIBRARY ORDER, by the tile's index in the source collection. Within one genre
+    /// the clips must keep the order the library lists them in, and ListCollectionView's sort is not
+    /// guaranteed stable - so the original position is part of the comparison rather than something
+    /// left to chance.
+    /// </remarks>
+    private sealed class GenreOrderComparer : System.Collections.IComparer
+    {
+        private readonly IReadOnlyList<string> _genres;
+        private readonly IList<ClipTile> _order;
+
+        public GenreOrderComparer(IReadOnlyList<string> genres, IList<ClipTile> order)
+        {
+            _genres = genres;
+            _order = order;
+        }
+
+        public int Compare(object? x, object? y)
+        {
+            if (x is not ClipTile left || y is not ClipTile right) return 0;
+
+            var byGenre = Rank(left.Genre).CompareTo(Rank(right.Genre));
+            return byGenre != 0 ? byGenre : _order.IndexOf(left).CompareTo(_order.IndexOf(right));
+        }
+
+        /// <summary>
+        /// The genre's place in the bar; int.MaxValue for ungrouped, and for a genre the list has
+        /// somehow lost - an unknown tag is untagged as far as the bar is concerned.
+        /// </summary>
+        private int Rank(string? genre)
+        {
+            if (genre is null) return int.MaxValue;
+
+            for (var i = 0; i < _genres.Count; i++)
+                if (Whallee.Core.Configuration.ClipGenres.Same(_genres[i], genre)) return i;
+
+            return int.MaxValue;
         }
     }
 }

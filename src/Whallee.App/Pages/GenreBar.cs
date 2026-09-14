@@ -74,9 +74,15 @@ internal static class GenreBar
 
             // The selected tab uses the app's primary button look, so "which one am I on?" is
             // answered by the same visual language as every other affirmative control.
+            //
+            // THE UNSELECTED TABS ASK FOR THE IMPLICIT STYLE BY KEY, AND MUST NOT BE LEFT null.
+            // Theme/Controls.xaml carries an implicit TargetType="Button" style, and setting Style
+            // locally to null BLOCKS implicit-style lookup rather than falling back to it - so a
+            // null here renders the unselected tabs as native light-chrome Windows buttons sitting
+            // beside the dark themed ones.
             Style = isSelected
                 ? (Style)Application.Current.FindResource("PrimaryButtonStyle")
-                : null
+                : (Style)Application.Current.FindResource(typeof(Button))
         };
 
         button.Click += (_, _) => onClick();

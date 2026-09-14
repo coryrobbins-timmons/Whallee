@@ -464,12 +464,20 @@ public sealed class LibraryViewModel
     {
         var fileName = Path.GetFileName(clipPath);
 
-        // Forgotten up front rather than on each success path: this method returns true from four
-        // separate places, and a stale entry here would resurface as a wrong source the next time
-        // something was imported under the same name. An entry for a clip that survives a failed
-        // delete is harmless - nothing reads an entry whose file is still there.
-        if (_sources.Remove(fileName))
-            ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+        // FORGOTTEN ON THE PATHS WHERE THE CLIP IS ACTUALLY GONE, never up front. It used to run
+        // here, before the recycle, which meant a REFUSED delete (the file is held - SentinelOne
+        // denies a replace on this machine) still stripped the clip's genre and source link from
+        // disk while the video stayed put. Worse, returning false skips the caller's reload, so the
+        // tile on screen kept showing a genre the index no longer had, and the clip silently dropped
+        // to Ungrouped at the next start. The entry is the clip's filing; it dies with the clip.
+        //
+        // A stale entry would resurface as a wrong source if something were later imported under the
+        // same name, which is exactly why every gone path below calls this.
+        void ForgetSource()
+        {
+            if (_sources.Remove(fileName))
+                ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+        }
 
         // CAPTURED BEFORE THE FILE GOES AWAY. The thumbnail cache key hashes path AND last-write
         // time, so once the clip is recycled there is no way to work out which cached jpg was its.
@@ -485,7 +493,9 @@ public sealed class LibraryViewModel
         // DERIVES from IOException, so the general catch would swallow it first.
         catch (FileNotFoundException)
         {
+            // "Already gone" COUNTS AS GONE: there is no clip left for the entry to describe.
             _reporter.Report($"{fileName} was already gone");
+            ForgetSource();
             ClipRemoval.ClearAssignments(_engine.Config, fileName);
             _engine.SaveConfig();
             return true;
@@ -519,6 +529,7 @@ public sealed class LibraryViewModel
                 return false;
             }
 
+            ForgetSource();
             DeleteCachedThumbnail(clipPath, stamp);
             _reporter.Report($"deleted {fileName} — moved to the Recycle Bin");
             return true;
@@ -531,6 +542,8 @@ public sealed class LibraryViewModel
 
         // The file is gone on the first attempt. Clear config, and re-attach ONLY if anything
         // actually referenced it - deleting a clip nothing was using costs no restart at all.
+        ForgetSource();
+
         var references = ClipRemoval.ClearAssignments(_engine.Config, fileName);
         if (references > 0) _engine.ApplyConfigChange();
         else _engine.SaveConfig();
