@@ -365,8 +365,95 @@ public class ClipSourcesTests
         index.Assign("A.mp4", "Cars");
         index.Assign("B.mp4", "Nature");
 
-        Assert.Equal(0, index.MoveGenre("Nature", -1));
+        Assert.Equal(0, index.MoveGenreTo("Nature", 0));
         Assert.Equal(new[] { "Nature", "Cars" }, index.Genres);
+    }
+
+    /// <summary>Dropping a dragged tab lands it where the indicator showed, not one short.</summary>
+    [Fact]
+    public void MovesAGenreToADroppedPosition()
+    {
+        var index = new ClipSourceIndex();
+        index.Assign("A.mp4", "Cars");
+        index.Assign("B.mp4", "Nature");
+        index.Assign("C.mp4", "Dystopia");
+
+        Assert.Equal(2, index.MoveGenreTo("Cars", 2));
+        Assert.Equal(new[] { "Nature", "Dystopia", "Cars" }, index.Genres);
+    }
+
+    /// <summary>
+    /// A genre no longer has to be born from a clip. Before 2026-09-14 the only way to create one
+    /// was to tag something, so the owner had to find a clip before setting up a category.
+    /// </summary>
+    [Fact]
+    public void CreatesAGenreWithNoClipsInIt()
+    {
+        var index = new ClipSourceIndex();
+
+        Assert.True(index.AddGenre("Cars"));
+        Assert.Equal(new[] { "Cars" }, index.Genres);
+        Assert.Empty(index.FileNamesIn("Cars"));
+    }
+
+    [Fact]
+    public void AnEmptyGenreCanThenBeTagged()
+    {
+        var index = new ClipSourceIndex();
+        index.AddGenre("Cars");
+
+        index.Assign("A.mp4", "Cars");
+
+        Assert.Single(index.Genres);
+        Assert.Equal(new[] { "A.mp4" }, index.FileNamesIn("Cars"));
+    }
+
+    /// <summary>
+    /// A duplicate is a no-op rather than a failure: the caller has already validated the name, and
+    /// reaching the same one twice should leave one genre rather than two.
+    /// </summary>
+    [Theory]
+    [InlineData("Cars")]
+    [InlineData("cars")]
+    [InlineData("  CARS  ")]
+    public void AddingAGenreThatExistsChangesNothing(string again)
+    {
+        var index = new ClipSourceIndex();
+        index.AddGenre("Cars");
+
+        Assert.False(index.AddGenre(again));
+        Assert.Equal(new[] { "Cars" }, index.Genres);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RefusesToCreateABlankGenre(string name)
+    {
+        var index = new ClipSourceIndex();
+
+        Assert.False(index.AddGenre(name));
+        Assert.Empty(index.Genres);
+    }
+
+    /// <summary>An empty genre must survive being written and read back, or the tab vanishes.</summary>
+    [Fact]
+    public void AnEmptyGenreSurvivesARoundTripThroughDisk()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"whallee-empty-{Guid.NewGuid():N}.json");
+        try
+        {
+            var written = new ClipSourceIndex();
+            written.AddGenre("Cars");
+
+            ClipSourceStore.Save(written, path);
+
+            Assert.Equal(new[] { "Cars" }, ClipSourceStore.Load(path).Genres);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch (Exception) { }
+        }
     }
 
     /// <summary>A rename of the FILE must carry the genre across, like the source link.</summary>
@@ -391,7 +478,7 @@ public class ClipSourcesTests
             written.Record("Clip.mp4", Source());
             written.Assign("Clip.mp4", "Cars");
             written.Assign("Other.mp4", "Nature");
-            written.MoveGenre("Nature", -1);
+            written.MoveGenreTo("Nature", 0);
 
             ClipSourceStore.Save(written, path);
             var read = ClipSourceStore.Load(path);

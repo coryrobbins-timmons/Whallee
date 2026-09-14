@@ -97,47 +97,73 @@ public class ClipGenresTests
         Assert.Equal(expected, ClipGenres.Same(a, b));
     }
 
+
+    /// <summary>
+    /// THE CASE THAT DECIDES THE WHOLE RULE. Dragging A to the far right of [A,B,C] must land it
+    /// last. The index is read AFTER A is lifted out, so 2 means "after B and C". Reading it before
+    /// the removal would give [B,A,C] and the tab would stop one short of where it was dropped.
+    /// </summary>
     [Fact]
-    public void MovesAGenreLeftAndRight()
+    public void MovesAGenreToAnAbsolutePositionOnTheRight()
     {
         var genres = new List<string> { "Cars", "Dystopia", "Nature" };
 
-        Assert.Equal(0, ClipGenres.Move(genres, "Dystopia", -1));
-        Assert.Equal(new[] { "Dystopia", "Cars", "Nature" }, genres);
-
-        Assert.Equal(2, ClipGenres.Move(genres, "Cars", +1));
+        Assert.Equal(2, ClipGenres.MoveTo(genres, "Cars", 2));
         Assert.Equal(new[] { "Dystopia", "Nature", "Cars" }, genres);
     }
 
-    /// <summary>
-    /// The ends are NO-OPS, not errors: the menu offers "Move left" on the first tab, and throwing
-    /// there would mean the caller had to know the position to avoid crashing.
-    /// </summary>
     [Fact]
-    public void MovingPastEitherEndDoesNothing()
+    public void MovesAGenreToAnAbsolutePositionOnTheLeft()
+    {
+        var genres = new List<string> { "Cars", "Dystopia", "Nature" };
+
+        Assert.Equal(0, ClipGenres.MoveTo(genres, "Nature", 0));
+        Assert.Equal(new[] { "Nature", "Cars", "Dystopia" }, genres);
+    }
+
+    /// <summary>
+    /// Dropping past the last tab is the ordinary way to say "put it at the end", and a drag that
+    /// ends outside the bar must not throw.
+    /// </summary>
+    [Theory]
+    [InlineData(99)]
+    [InlineData(-5)]
+    public void ClampsAnOutOfRangeDropRatherThanThrowing(int index)
     {
         var genres = new List<string> { "Cars", "Dystopia" };
 
-        Assert.Equal(0, ClipGenres.Move(genres, "Cars", -1));
-        Assert.Equal(1, ClipGenres.Move(genres, "Dystopia", +1));
-        Assert.Equal(new[] { "Cars", "Dystopia" }, genres);
+        var to = ClipGenres.MoveTo(genres, "Cars", index);
+
+        Assert.InRange(to, 0, genres.Count - 1);
+        Assert.Equal(2, genres.Count);
+        Assert.Contains("Cars", genres);
+    }
+
+    /// <summary>Dropping a tab back where it started leaves the order untouched.</summary>
+    [Fact]
+    public void MovingToItsOwnPositionChangesNothing()
+    {
+        var genres = new List<string> { "Cars", "Dystopia", "Nature" };
+
+        Assert.Equal(1, ClipGenres.MoveTo(genres, "Dystopia", 1));
+        Assert.Equal(new[] { "Cars", "Dystopia", "Nature" }, genres);
     }
 
     [Fact]
-    public void MovingSomethingAbsentDoesNothing()
+    public void MovingSomethingAbsentToAPositionDoesNothing()
     {
         var genres = new List<string> { "Cars" };
 
-        Assert.Equal(-1, ClipGenres.Move(genres, "Missing", +1));
+        Assert.Equal(-1, ClipGenres.MoveTo(genres, "Missing", 0));
         Assert.Equal(new[] { "Cars" }, genres);
     }
 
     [Fact]
-    public void MovesByNameWithoutRegardToCase()
+    public void MovesToAPositionByNameWithoutRegardToCase()
     {
         var genres = new List<string> { "Cars", "Dystopia" };
 
-        Assert.Equal(1, ClipGenres.Move(genres, "cars", +1));
+        Assert.Equal(1, ClipGenres.MoveTo(genres, "cars", 1));
         Assert.Equal(new[] { "Dystopia", "Cars" }, genres);
     }
 }

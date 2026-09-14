@@ -197,8 +197,31 @@ public sealed class ClipSourceIndex
         return true;
     }
 
-    /// <summary>Moves a genre in the bar. Returns its new index, or -1 if it is not there.</summary>
-    public int MoveGenre(string name, int delta) => ClipGenres.Move(_genres, name, delta);
+    /// <summary>Moves a genre to an absolute position. Returns its new index, or -1 if absent.</summary>
+    public int MoveGenreTo(string name, int index) => ClipGenres.MoveTo(_genres, name, index);
+
+    /// <summary>
+    /// Creates a genre that has no clips in it yet. True if it was added.
+    /// </summary>
+    /// <remarks>
+    /// NEEDED BECAUSE A GENRE NO LONGER HAS TO BE BORN FROM A CLIP. Until 2026-09-14 the only way
+    /// to create one was to tag something with it, so the owner had to find a clip before they
+    /// could set up a category. The bar's "+ New genre" button creates one empty - and
+    /// <see cref="Genres"/> is stored rather than derived precisely so an empty one survives.
+    ///
+    /// A DUPLICATE IS A NO-OP, NOT A FAILURE. The caller has already validated the name through
+    /// <see cref="ClipGenres.Validate"/>; reaching the same name twice should leave one genre
+    /// rather than two, and does not merit an error.
+    /// </remarks>
+    public bool AddGenre(string name)
+    {
+        var candidate = ClipGenres.Normalise(name);
+        if (candidate.Length == 0) return false;
+        if (_genres.Any(g => ClipGenres.Same(g, candidate))) return false;
+
+        _genres.Add(candidate);
+        return true;
+    }
 
     /// <summary>Rebuilds an index from stored clips and an ordered genre list.</summary>
     public static ClipSourceIndex From(

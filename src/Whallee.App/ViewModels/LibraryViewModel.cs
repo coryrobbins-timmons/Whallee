@@ -128,12 +128,21 @@ public sealed class LibraryViewModel
         return true;
     }
 
-    /// <summary>Moves a genre in the bar. Returns its new index, or -1 if it is not there.</summary>
-    public int MoveGenre(string name, int delta)
+    /// <summary>Moves a genre to a dropped position. Returns its new index, or -1 if absent.</summary>
+    public int MoveGenreTo(string name, int index)
     {
-        var to = _sources.MoveGenre(name, delta);
+        var to = _sources.MoveGenreTo(name, index);
         if (to >= 0) ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
         return to;
+    }
+
+    /// <summary>Creates a genre with no clips in it. True if it was added.</summary>
+    public bool AddGenre(string name)
+    {
+        if (!_sources.AddGenre(name)) return false;
+
+        ClipSourceStore.Save(_sources, ClipSourceStore.DefaultPath);
+        return true;
     }
 
     public LibraryViewModel(EngineHost engine, UiReporter reporter)

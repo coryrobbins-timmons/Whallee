@@ -550,7 +550,7 @@ public partial class LibraryPage : UserControl
         GenreBar.Populate(
             GenreBarHost, _model.Genres, _selectedGenre,
             hasUngrouped: hasUngrouped,
-            new GenreBarActions(SelectGenre, RenameGenre, DeleteGenre, MoveGenre));
+            new GenreBarActions(SelectGenre, RenameGenre, DeleteGenre, CreateGenre, MoveGenreTo));
 
         ApplyGenreView();
     }
@@ -684,16 +684,47 @@ public partial class LibraryPage : UserControl
         }
     }
 
-    private void MoveGenre(string genre, int delta)
+    /// <summary>Drops a dragged genre tab at a new position in the bar.</summary>
+    /// <remarks>
+    /// REPLACED "Move left" / "Move right" on 2026-09-14 at the owner's request - they asked for
+    /// Chrome's tab dragging. GenreBar computes the index; this only applies and redraws.
+    /// </remarks>
+    private void MoveGenreTo(string genre, int index)
     {
         try
         {
-            _model.MoveGenre(genre, delta);
+            _model.MoveGenreTo(genre, index);
             RefreshGenreView();
         }
         catch (Exception ex)
         {
             _reporter.Report($"could not move {genre}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// "+ New genre" in the bar: creates a genre with no clips in it.
+    /// </summary>
+    /// <remarks>
+    /// SEPARATE FROM THE CLIP MENU'S "New genre…", which creates one AND tags the clip it was
+    /// opened from. This one exists because setting up categories should not require finding a clip
+    /// to hang the first one on — which is why an empty genre has to survive being stored.
+    /// </remarks>
+    private void CreateGenre()
+    {
+        try
+        {
+            var name = Dialogs.TextPromptDialog.Ask(
+                Window.GetWindow(this), "New genre", "Genre name", null,
+                value => Whallee.Core.Configuration.ClipGenres.Validate(value, _model.Genres));
+
+            if (name is null) return;
+
+            if (_model.AddGenre(name)) RefreshGenreView();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not create that genre: {ex.Message}");
         }
     }
 

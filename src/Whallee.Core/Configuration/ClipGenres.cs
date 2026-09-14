@@ -53,13 +53,23 @@ public static class ClipGenres
     }
 
     /// <summary>
-    /// Moves a genre within the ordered list. Returns its new index, or -1 if it is not there.
+    /// Moves a genre to an absolute position. Returns its new index, or -1 if it is not there.
     /// </summary>
     /// <remarks>
-    /// A MOVE PAST EITHER END IS A NO-OP, NOT AN ERROR. The context menu offers "Move left" on the
-    /// first tab, so the caller would otherwise have to know the position to avoid a crash.
+    /// AN ABSOLUTE POSITION, NOT A DELTA, BECAUSE A DRAG KNOWS A DESTINATION. There was a
+    /// delta-based Move here until 2026-09-14, when the owner asked to drag tabs the way Chrome
+    /// does and "Move left" / "Move right" were removed. It is not kept alongside: expressing a
+    /// drop as a delta means the caller computing target-minus-source, which gets the sign wrong in
+    /// exactly one of the two directions.
+    ///
+    /// THE INDEX IS CLAMPED, NOT VALIDATED. Dropping past the last tab is the ordinary way to say
+    /// "put it at the end", and a drag that ends outside the bar must not throw.
+    ///
+    /// THE INDEX IS READ AFTER THE GENRE IS LIFTED OUT, which is what makes a rightward drag land
+    /// where the drop indicator showed it: with [A,B,C], moving A to index 2 gives [B,C,A]. Reading
+    /// it before the removal would give [B,A,C] and the tab would appear to stop one short.
     /// </remarks>
-    public static int Move(IList<string> genres, string name, int delta)
+    public static int MoveTo(IList<string> genres, string name, int index)
     {
         var from = -1;
         for (var i = 0; i < genres.Count; i++)
@@ -67,11 +77,10 @@ public static class ClipGenres
 
         if (from < 0) return -1;
 
-        var to = from + delta;
-        if (to < 0 || to >= genres.Count) return from;
-
         var moved = genres[from];
         genres.RemoveAt(from);
+
+        var to = Math.Clamp(index, 0, genres.Count);
         genres.Insert(to, moved);
         return to;
     }
