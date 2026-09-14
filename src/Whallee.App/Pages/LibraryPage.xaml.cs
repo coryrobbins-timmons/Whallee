@@ -279,7 +279,11 @@ public partial class LibraryPage : UserControl
                     try
                     {
                         var old = System.IO.Path.Combine(_model.Config.LibraryFolder, replacing);
-                        if (await _model.DeleteClipAsync(old)) await _model.LoadAsync();
+                        if (await _model.DeleteClipAsync(old))
+                        {
+                            await _model.LoadAsync();
+                            RefreshGenreView();
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -512,10 +516,6 @@ public partial class LibraryPage : UserControl
         }
     }
 
-    /// <summary>
-    /// Synchronous: the dialog does its own probing off-thread and shows instantly, so there is
-    /// nothing to await here. Still wrapped - a menu Click is a Dispatcher callback.
-    /// </summary>
     /// <summary>Rebuilds the bar and re-applies the filter and grouping.</summary>
     private void RefreshGenreView()
     {
@@ -578,10 +578,22 @@ public partial class LibraryPage : UserControl
         }
     }
 
+    /// <summary>
+    /// Wrapped like every sibling handler here: this is reached from a tab's Click, which is a
+    /// Dispatcher callback, and the rebuild it triggers resolves theme resources - FindResource
+    /// throws on a missing key. An escaping exception would terminate the process.
+    /// </summary>
     private void SelectGenre(string? genre)
     {
-        _selectedGenre = genre;
-        RefreshGenreView();
+        try
+        {
+            _selectedGenre = genre;
+            RefreshGenreView();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not show that genre: {ex.Message}");
+        }
     }
 
     private void RenameGenre(string genre)
@@ -701,6 +713,10 @@ public partial class LibraryPage : UserControl
         }
     }
 
+    /// <summary>
+    /// Synchronous: the dialog does its own probing off-thread and shows instantly, so there is
+    /// nothing to await here. Still wrapped - a menu Click is a Dispatcher callback.
+    /// </summary>
     private void ShowDetails(ClipTile tile)
     {
         try
@@ -756,7 +772,10 @@ public partial class LibraryPage : UserControl
             // Only refresh when something actually changed: a refused rename leaves a grid that is
             // still correct, and LoadAsync re-runs the whole thumbnail pass.
             if (await _model.RenameClipAsync(tile.Path, dialog.NewBaseName))
+            {
                 await _model.LoadAsync();
+                RefreshGenreView();
+            }
         }
         catch (Exception ex)
         {
@@ -797,7 +816,10 @@ public partial class LibraryPage : UserControl
             // Only refresh when something actually changed: a refused delete leaves a grid that is
             // still correct, and LoadAsync re-runs the whole thumbnail pass.
             if (await _model.DeleteClipAsync(tile.Path))
+            {
                 await _model.LoadAsync();
+                RefreshGenreView();
+            }
         }
         catch (Exception ex)
         {
