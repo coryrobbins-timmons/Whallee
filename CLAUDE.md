@@ -215,6 +215,12 @@ confirmation says so, and that wording is load-bearing.
    playback, or XAML — mocking Win32 proves nothing about whether Windows accepts the call. Unit
    tests cover pure logic in `Whallee.Core` only. The plan governs this; do not relitigate it.
 4. **mpv liveness window is 1 second.** Shortened from 5 deliberately. Do not revert.
+5. **`UrlImportDialog`'s "predicts nothing" rule has exactly one recorded exception**: the stale
+   yt-dlp line, added 2026-09-16. The rule came from removing a ~60 s estimate whose stated problem
+   was that it *could not change what the user does*. A stale tool can — the owner goes and updates
+   it. The exception is documented at `UrlImportDialog.CheckToolAge` and in
+   `YtDlpVersion.DialogWarning`. Do not delete that line as a rule violation; do not take it as
+   licence to reintroduce network predictions.
 
 ## Build and test
 
@@ -271,6 +277,11 @@ Both must be clean. Safe verbs that print and exit — use these freely:
     understated reality by 4×. Retuning a byte constant to a larger value repeats the mistake.
   - An open-ended request is answered **403**; an explicit `Range: bytes=N-M` is answered **206**.
     That difference is the entire mechanism, not an optimisation.
+- **yt-dlp's version IS its release date** (`2026.08.19`), so "how stale is it?" is subtraction
+  against the system clock — no network call, no GitHub API, nothing that behaves differently
+  offline. `YtDlpVersion` uses this; do not replace it with a latest-release lookup.
+  `YtDlpVersion.StaleAfterDays` is 45, and the check runs **once per app session** because import
+  latency here is process launches, not bandwidth.
 - Four clips in the library. **Four clips across three displays means two displays showing the same
   clip is expected, not a bug.**
 - **mpv does NOT lock a clip it is playing — deleting one while it is on screen succeeds.**
