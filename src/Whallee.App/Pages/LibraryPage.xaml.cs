@@ -256,7 +256,8 @@ public partial class LibraryPage : UserControl
                 var summary = ImportSummary.Describe(
                     System.IO.Path.GetFileNameWithoutExtension(outcome.LibraryPath ?? string.Empty),
                     request.Length, request.Start,
-                    outcome.ActualLength, outcome.Strategy);
+                    outcome.ActualLength, outcome.Strategy,
+                    YtDlpHealth.StaleAgeInDays());
 
                 // APPLIED TO EVERY DISPLAY THE MOMENT IT LANDS, at the owner's request
                 // (2026-09-11). Importing a wallpaper and then having to right-click it to see it

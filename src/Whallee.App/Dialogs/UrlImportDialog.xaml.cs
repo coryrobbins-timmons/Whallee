@@ -56,6 +56,48 @@ public partial class UrlImportDialog : Window
             UrlBox.Text = prefillUrl;
             UrlBox.CaretIndex = UrlBox.Text.Length;
         }
+
+        CheckToolAge();
+    }
+
+    /// <summary>
+    /// Warns when yt-dlp is old enough to break imports.
+    /// </summary>
+    /// <remarks>
+    /// A DELIBERATE, REASONED EXCEPTION TO THIS FILE'S NO-PREDICTION RULE. DO NOT DELETE IT AS A
+    /// VIOLATION. That rule was written on 2026-09-02 when a ~60s estimate was removed, and its
+    /// stated reasoning was that knowing the ceiling in advance COULD NOT CHANGE WHAT THE USER DOES.
+    /// That reasoning does not reach this case: a stale yt-dlp is a local, checkable fact about the
+    /// owner's machine, and knowing it beforehand changes exactly what they do - they go and update
+    /// it, and the import then works. The rule stands for predictions about the network; this is
+    /// not one.
+    ///
+    /// async void, like every other awaiting handler on this window, and wrapped in try/catch for
+    /// the same reason: an exception escaping one terminates the process regardless of what raised
+    /// it. Silence on failure is also the design - see YtDlpVersion.ReadAsync.
+    ///
+    /// Nothing here blocks the constructor. The check runs off-thread and this continuation resumes
+    /// on the dispatcher, so the window opens immediately and the line appears when it is known.
+    /// </remarks>
+    private async void CheckToolAge()
+    {
+        try
+        {
+            var released = await YtDlpHealth.VersionAsync(_ytDlpPath);
+            var warning = YtDlpVersion.DialogWarning(
+                released,
+                DateOnly.FromDateTime(DateTime.Now),
+                _ytDlpPath,
+                YtDlpLocator.DefaultWingetPackagesRoot);
+
+            if (warning is null) return;
+
+            StaleToolText.Text = warning;
+            StaleToolText.Visibility = Visibility.Visible;
+        }
+        catch (Exception)
+        {
+        }
     }
 
     /// <summary>async void: a Click handler that awaits has no other shape, so the body is wrapped.</summary>

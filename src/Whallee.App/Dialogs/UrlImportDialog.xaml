@@ -12,6 +12,11 @@
             <TextBox x:Name="UrlBox" />
         </DockPanel>
 
+        <!-- ACCENT, NOT DANGER. Red overstates a tool that still works most of the time, and this
+             line is advice, not an error. -->
+        <TextBlock x:Name="StaleToolText" Foreground="{StaticResource AccentBrush}"
+                   Margin="0,10,0,0" TextWrapping="Wrap" Visibility="Collapsed" />
+
         <StackPanel x:Name="DetailsPanel" Visibility="Collapsed" Margin="0,14,0,0">
             <TextBlock x:Name="TitleText" FontWeight="SemiBold" TextWrapping="Wrap" />
             <TextBlock x:Name="DurationText" Margin="0,2,0,0" />
