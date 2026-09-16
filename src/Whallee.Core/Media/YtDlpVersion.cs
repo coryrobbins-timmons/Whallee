@@ -134,8 +134,14 @@ public static class YtDlpVersion
     {
         if (released is not { } date || !IsStale(date, today)) return null;
 
-        return $"yt-dlp is {DescribeAge(Age(date, today))}. Imports may come back short or fail — "
-             + $"update with: {UpdateCommandFor(ytDlpPath, wingetPackagesRoot)}";
+        // FRAMED AS THE FIX, NOT AS A THREAT, chosen by the owner on 2026-09-16 after seeing all
+        // three candidates rendered in the real dialog. "Imports may come back short or fail" is a
+        // prediction that is easy to shrug off; "updating it fixes most short or failed imports" is
+        // a report of what actually happened on 2026-09-14, when exactly that fixed every import
+        // with no code change. It also sits more comfortably beside this dialog's no-prediction
+        // rule - it describes a remedy rather than forecasting a failure.
+        return $"yt-dlp is {DescribeAge(Age(date, today))}. Updating it fixes most short or failed "
+             + $"imports: {UpdateCommandFor(ytDlpPath, wingetPackagesRoot)}";
     }
 
     /// <summary>Runs "--version". Null on any failure at all.</summary>
