@@ -29,9 +29,13 @@ public static class ImportSummary
     /// The importer's strategy letter. "C" is the prefix-only path: it can fetch the beginning of a
     /// video and nothing else, so a non-zero start was necessarily ignored.
     /// </param>
+    /// <param name="staleToolAgeDays">
+    /// How many days old the installed yt-dlp is, when it is past
+    /// <see cref="YtDlpVersion.StaleAfterDays"/>; null when it is current or could not be read.
+    /// </param>
     public static ImportSummaryText Describe(
         string clipName, TimeSpan requested, TimeSpan requestedStart,
-        TimeSpan actual, string strategy)
+        TimeSpan actual, string strategy, int? staleToolAgeDays = null)
     {
         // "— 5:00 long", NOT "— 5:00". A bare duration ends this sentence right after a wait that
         // can run to minutes, and on 2026-09-11 the owner read it as how long the DOWNLOAD took
@@ -62,6 +66,16 @@ public static class ImportSummary
                 $"This clip begins at the beginning rather than {Clock(requestedStart)}.",
             _ => null
         };
+
+        // APPENDED, NEVER FOLDED INTO THE SWITCH ABOVE. A third dimension turns four cases into
+        // eight in the one method whose wording this file's own remarks call load-bearing and easy
+        // to break by accident.
+        //
+        // ONLY WHEN THE CLIP CAME BACK SHORT. A stale yt-dlp that delivered what was asked for has
+        // caused no harm, and a caveat on a good import teaches the owner to ignore this sentence -
+        // which is the sentence the whole check exists to deliver.
+        if (detail is not null && shorterThanAsked && staleToolAgeDays is { } days)
+            detail += $" Your yt-dlp is {YtDlpVersion.DescribeAge(days)}, which is the most likely cause.";
 
         return new ImportSummaryText(headline, detail);
     }

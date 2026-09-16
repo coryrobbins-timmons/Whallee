@@ -13,6 +13,16 @@ public class ImportSummaryTests
             TimeSpan.FromSeconds(actualSeconds),
             strategy);
 
+    private static ImportSummaryText DescribeWithStaleTool(
+        int askedSeconds, int startSeconds, int actualSeconds, int staleDays, string strategy = "C") =>
+        ImportSummary.Describe(
+            "Motorcyle Sunset",
+            TimeSpan.FromSeconds(askedSeconds),
+            TimeSpan.FromSeconds(startSeconds),
+            TimeSpan.FromSeconds(actualSeconds),
+            strategy,
+            staleDays);
+
     [Fact]
     public void HeadlineNamesTheClipAndItsLength()
     {
@@ -76,5 +86,64 @@ public class ImportSummaryTests
     public void FormatsDurationsReadably(int seconds, string expected)
     {
         Assert.Contains(expected, Describe(seconds, 0, seconds).Headline);
+    }
+
+    /// <summary>
+    /// THE SENTENCE THIS WHOLE FEATURE EXISTS TO PRODUCE. It is the conclusion nobody reached for
+    /// two months while a stale yt-dlp was blamed on the network.
+    /// </summary>
+    [Fact]
+    public void NamesAStaleToolAsTheLikelyCauseOfAShortClip()
+    {
+        var detail = DescribeWithStaleTool(300, 0, 54, staleDays: 90).Detail;
+
+        Assert.NotNull(detail);
+        Assert.Contains("Only 54 seconds", detail);
+        Assert.Contains("3 months old", detail);
+        Assert.Contains("most likely cause", detail);
+    }
+
+    /// <summary>
+    /// A stale tool that nonetheless delivered what was asked for has caused no harm. Saying
+    /// otherwise on a successful import is how a warning becomes noise and stops being read.
+    /// </summary>
+    [Fact]
+    public void SaysNothingAboutTheToolWhenTheImportWasNotShort()
+    {
+        Assert.Null(DescribeWithStaleTool(54, 0, 54, staleDays: 90).Detail);
+    }
+
+    /// <summary>
+    /// An ignored start time is a strategy-C fact, not a yt-dlp-age fact. Attaching the cause
+    /// sentence here would blame the wrong thing.
+    /// </summary>
+    [Fact]
+    public void DoesNotBlameTheToolForAnIgnoredStartTimeAlone()
+    {
+        var detail = DescribeWithStaleTool(54, 90, 54, staleDays: 90).Detail;
+
+        Assert.NotNull(detail);
+        Assert.DoesNotContain("yt-dlp", detail);
+    }
+
+    [Fact]
+    public void LeavesTheShortClipCaveatAloneWhenTheToolIsCurrent()
+    {
+        var detail = Describe(askedSeconds: 300, startSeconds: 0, actualSeconds: 54).Detail;
+
+        Assert.Equal("Only 54 seconds of the 5:00 you asked for could be fetched.", detail);
+    }
+
+    /// <summary>
+    /// Two facts, two sentences - unlike the two caveats, which share one. The cause is about the
+    /// owner's machine, not about their request, and running them together reads as one muddle.
+    /// </summary>
+    [Fact]
+    public void PutsTheCauseInItsOwnSentence()
+    {
+        var detail = DescribeWithStaleTool(300, 90, 54, staleDays: 90).Detail;
+
+        Assert.NotNull(detail);
+        Assert.Equal(2, detail!.Count(c => c == '.'));
     }
 }
