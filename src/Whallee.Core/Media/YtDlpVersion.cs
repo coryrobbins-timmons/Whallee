@@ -125,4 +125,62 @@ public static class YtDlpVersion
         return $"yt-dlp is {DescribeAge(Age(date, today))}. Imports may come back short or fail — "
              + $"update with: {UpdateCommandFor(ytDlpPath, wingetPackagesRoot)}";
     }
+
+    /// <summary>Runs "--version". Null on any failure at all.</summary>
+    /// <remarks>
+    /// THE PROCESS HYGIENE HERE IS COPIED FROM YtDlpProbe.ProbeAsync AND MUST NOT BE SIMPLIFIED:
+    ///
+    /// - Both pipes are read CONCURRENTLY. Reading only stdout lets a large stderr fill the OS pipe
+    ///   buffer and block the child forever - it cannot exit, because it is blocked writing to a
+    ///   full pipe nobody is draining. A classic deadlock, and yt-dlp does print to stderr.
+    /// - The process tree is killed in a finally, so a cancelled or timed-out check never leaves a
+    ///   yt-dlp running in the background.
+    /// - The wait is BOUNDED. A wedged yt-dlp must not strand the dialog that started this.
+    /// </remarks>
+    public static async Task<DateOnly?> ReadAsync(string ytDlpPath, CancellationToken ct = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        var token = timeout.Token;
+
+        var info = new ProcessStartInfo(ytDlpPath)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        info.ArgumentList.Add("--version");
+
+        try
+        {
+            using var process = Process.Start(info);
+            if (process is null) return null;
+
+            try
+            {
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(token);
+                var stderrTask = process.StandardError.ReadToEndAsync(token);
+                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
+                await process.WaitForExitAsync(token).ConfigureAwait(false);
+
+                if (process.ExitCode != 0) return null;
+
+                return Parse(await stdoutTask.ConfigureAwait(false));
+            }
+            finally
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                catch (Exception) { }
+            }
+        }
+        catch (Exception)
+        {
+            // SILENCE IS THE DESIGN. Missing exe, timeout, access denied, unreadable output - all
+            // of it means "say nothing". A tool-health check that raises a false alarm when it
+            // cannot read its own input is worse than no check: it trains the owner to ignore the
+            // one message this exists to deliver.
+            return null;
+        }
+    }
 }
