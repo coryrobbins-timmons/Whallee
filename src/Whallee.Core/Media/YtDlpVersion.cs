@@ -29,6 +29,16 @@ public static class YtDlpVersion
     /// </summary>
     public const int StaleAfterDays = 45;
 
+    /// <summary>
+    /// A year below this is not a real yt-dlp release, so Parse rejects it rather than reporting a
+    /// wrong age. Without this floor, a misconfigured path pointing at some other tool that prints
+    /// a bare semver like "7.1.1" would parse as DateOnly(7, 1, 1) - a version ~740,000 days old -
+    /// and the dialog would say "24672 months old" instead of saying nothing. yt-dlp's first release
+    /// was 2021 and its youtube-dl date-versioned ancestry goes back no further than that, so 2015
+    /// excludes nothing real while catching every bare semver.
+    /// </summary>
+    private const int EarliestPlausibleYear = 2015;
+
     private const string WingetCommand = "winget upgrade yt-dlp";
     private const string SelfUpdateCommand = "yt-dlp -U";
 
@@ -51,6 +61,8 @@ public static class YtDlpVersion
             !Number(parts[1], out var month) ||
             !Number(parts[2], out var day))
             return null;
+
+        if (year < EarliestPlausibleYear) return null;
 
         try { return new DateOnly(year, month, day); }
         catch (ArgumentOutOfRangeException) { return null; }

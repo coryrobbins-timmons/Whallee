@@ -14,8 +14,13 @@ namespace Whallee.App.Dialogs;
 /// as about the same minute. The limit is now reported AFTER the import, by YouTubeImporter, where
 /// it is a report of what happened rather than an estimate. Do not reintroduce an estimate here.
 ///
-/// A consequence worth keeping: nothing on this window touches the network except the lookup, so
-/// there is no background task, no second yt-dlp launch, and no failure path for either.
+/// A consequence worth keeping: nothing on this window touches the network except the lookup -
+/// that much is still true. It is no longer true that there is no background task here. The
+/// constructor starts one: CheckToolAge, which launches yt-dlp itself (locally, not over the
+/// network - ReadAsync runs a process, it does not make a request) to read its version and warn
+/// when it is stale. That check fails silently by design, the same as YtDlpVersion.ReadAsync it
+/// calls into, so there IS now a failure path, and it is meant to say nothing rather than surface
+/// an error. Read CheckToolAge before assuming this window has nothing running once it opens.
 /// </remarks>
 public partial class UrlImportDialog : Window
 {

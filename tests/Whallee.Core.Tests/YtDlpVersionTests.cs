@@ -29,6 +29,10 @@ public class YtDlpVersionTests
         Assert.Equal(new DateOnly(2026, 8, 19), YtDlpVersion.Parse("2026.08.19 [a1b2c3d]"));
     }
 
+    /// <summary>
+    /// Includes a bare semver ("7.1.1") - the output a misconfigured path pointing at some other
+    /// tool would print. That must read as unparseable, not as the year 7.
+    /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -36,6 +40,7 @@ public class YtDlpVersionTests
     [InlineData("not a version")]
     [InlineData("2026.08")]
     [InlineData("2026.13.45")]
+    [InlineData("7.1.1")]
     public void GivesNothingForOutputItCannotRead(string? output)
     {
         Assert.Null(YtDlpVersion.Parse(output));
