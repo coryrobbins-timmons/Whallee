@@ -22,7 +22,39 @@ Start with Windows, the app and tray icon, and pause-on-fullscreen / pause-on-ba
 **Plan 2 tasks 9, 10 and 13**. Specs and plans for each are in the sibling workspace under
 `C:\Users\cory.robbins\OneDrive - Timmons Group Inc\Documents\coryrob\Visual Studio Code\Claude Code\docs\superpowers\`.
 
-Still open, in the order they were last judged worth doing:
+**Updated 2026-09-17.** The yt-dlp staleness check shipped — see the Environment facts entry and
+standing ruling 5. Four items were raised by the owner while testing it and head this list; the
+older items follow.
+
+- **Players are never synchronised across displays.** The three mpv processes start back to back —
+  `launchMpv 940` in a real swap profile, roughly 300 ms apart each — and then each loops on its own
+  clock, so whatever offset they start with is permanent. Nothing ever realigns them. It is
+  invisible while the displays show different clips and obvious when they show the same one, and
+  **auto-apply-on-import (2026-09-11) made same-clip-everywhere the normal state after every
+  download**, which is why the owner noticed on 2026-09-16 and not before. The pieces for a fix
+  exist: `MpvIpc` is built and proven, so pausing every player, seeking them to a common position
+  and unpausing together after the settle step should hold — once two mpv instances are in step they
+  stay in step, and the staggered start is the whole error, not drift. Unanswered: where in the pass
+  it belongs, and what happens when a player dies mid-sync.
+- **Shuffle ribbon** — owner's request, 2026-09-16. A third tab beside Library and Settings: rotate
+  the wallpaper on a configurable interval, with a filter over which genres take part and any
+  combination selectable (just Cars, or Cars + Dystopia, or everything). Genres already exist and
+  are stored in `sources.json`, so the filter has something to read.
+- **A second copy exits silently.** Launching Whallee while it is already running logs
+  `another copy is already running — exiting` and dies with no window, no message, and no focus
+  handed to the copy that is running. On 2026-09-16 the owner clicked the shortcut **nine times in
+  33 seconds** and got nothing back, having believed a tray Exit had taken when it had not. The
+  normal behaviour for a single-instance tray app is for the second copy to surface the first one
+  and then exit. Cheap, and it has already cost real time.
+- **A button to update yt-dlp.** Owner's request, 2026-09-16, and safer than first judged: Whallee
+  would launch `winget` rather than rewrite the binary itself, and a manual run needed no elevation.
+  **Blocked on one real question, not on code:** winget's catalogue lags yt-dlp's own releases, so
+  there will be windows where the warning says "old" and `winget upgrade` answers "nothing
+  available" — a button that visibly does nothing is worse than no button. Note also that `winget`
+  returns **exit code 43**, not 0, for "no applicable upgrade"; treating non-zero as failure would
+  report an error on the common path.
+
+The older items, in the order they were last judged worth doing:
 
 - **Import latency** — item 2 below. **Partly overtaken 2026-09-14:** a two-month-stale `yt-dlp` was
   resolving every video through YouTube's `android_vr` client, which googlevideo serves about a
