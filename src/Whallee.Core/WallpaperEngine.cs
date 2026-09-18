@@ -270,6 +270,7 @@ public sealed class WallpaperEngine : IDisposable
         _layer = layer;
         BuildPlayers(layer);
         VerifyPlayersStarted();
+        _profile.Measure("sync", AlignPlayers);
         _profile.Measure("reveal", RevealPlayers);
 
         LastPassProfile = _profile.Describe("start");
@@ -359,7 +360,14 @@ public sealed class WallpaperEngine : IDisposable
             //
             // Skipped when nothing survived: revealing a set of empty windows over a working
             // wallpaper would replace it with Explorer's, which is the defect this exists to stop.
-            if (!keepOutgoing) _profile.Measure("reveal", RevealPlayers);
+            if (!keepOutgoing)
+            {
+                // SAME GUARD AS THE REVEAL, deliberately. When nothing survived we keep the
+                // outgoing generation on screen, and seeking players we are about to retire would
+                // rewind the wallpaper the user is actually looking at.
+                _profile.Measure("sync", AlignPlayers);
+                _profile.Measure("reveal", RevealPlayers);
+            }
         }
         finally
         {
@@ -549,6 +557,38 @@ public sealed class WallpaperEngine : IDisposable
         // A dead player's HostWindow is deliberately LEFT IN PLACE, exactly as it was before: it is
         // an empty child window on the wallpaper layer, _hosts owns it, and StopAll destroys it on
         // the next pass. Tearing a window down mid-pass on the thread that owns it buys nothing.
+    }
+
+    /// <summary>
+    /// Brings every surviving player to the same position before anything is shown.
+    /// </summary>
+    /// <remarks>
+    /// RUN BEFORE THE REVEAL, AND THAT ORDERING IS THE POINT. Aligning means rewinding whichever
+    /// display got a head start - up to about 600 ms of video jumping backwards. The host windows
+    /// are still hidden here, so that rewind is never seen. Doing this after RevealPlayers would
+    /// trade a constant small offset for a visible hitch on every single swap.
+    ///
+    /// THE WAIT IS A POLLING PUMP, copied from WaitForPlayersToSettle, and it has to be. This
+    /// thread owns windows re-parented into Explorer's desktop, so a non-pumping wait freezes the
+    /// user's whole desktop - four separate bugs in this codebase have come from that. Note that
+    /// MessagePump.RunUntil(Task) fits this job by NAME and must NOT be used: it is a blocking
+    /// GetMessageW pump for the console harness, and in a WPF app it fights the framework's own
+    /// message loop.
+    ///
+    /// Running out of the cap is not an error and is not reported. It means the wallpaper appears
+    /// with the players possibly unaligned, which is exactly what happened before this existed. The
+    /// background task is left to finish on its own; it never throws.
+    /// </remarks>
+    private void AlignPlayers()
+    {
+        if (!PlayerSync.ShouldAlign(_active.Count)) return;
+
+        var pipeNames = _active.Select(a => a.Player.PipeName).ToArray();
+        var work = PlayerSync.AlignAsync(pipeNames);
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
+            MessagePump.Sleep(PlayerSync.PollInterval);
     }
 
     /// <summary>The IPC pipe name for one display in the current generation.</summary>
