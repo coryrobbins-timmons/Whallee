@@ -26,16 +26,12 @@ Start with Windows, the app and tray icon, and pause-on-fullscreen / pause-on-ba
 standing ruling 5. Four items were raised by the owner while testing it and head this list; the
 older items follow.
 
-- **Players are never synchronised across displays.** The three mpv processes start back to back —
-  `launchMpv 940` in a real swap profile, roughly 300 ms apart each — and then each loops on its own
-  clock, so whatever offset they start with is permanent. Nothing ever realigns them. It is
-  invisible while the displays show different clips and obvious when they show the same one, and
-  **auto-apply-on-import (2026-09-11) made same-clip-everywhere the normal state after every
-  download**, which is why the owner noticed on 2026-09-16 and not before. The pieces for a fix
-  exist: `MpvIpc` is built and proven, so pausing every player, seeking them to a common position
-  and unpausing together after the settle step should hold — once two mpv instances are in step they
-  stay in step, and the staggered start is the whole error, not drift. Unanswered: where in the pass
-  it belongs, and what happens when a player dies mid-sync.
+- ~~**Players are never synchronised across displays.**~~ **Shipped 2026-09-18** — see the
+  Environment facts entry below. The pause/seek/unpause approach originally proposed here was
+  considered and rejected: a failed unpause leaves a display frozen on one frame forever, and
+  `MpvIpc` is write-only, so that failure could never even be detected, let alone recovered from. The
+  shipped fix instead does one plain seek-to-zero per player, sent before the reveal so the rewind is
+  never seen, which sidesteps the unpause failure mode entirely.
 - **Shuffle ribbon** — owner's request, 2026-09-16. A third tab beside Library and Settings: rotate
   the wallpaper on a configurable interval, with a filter over which genres take part and any
   combination selectable (just Cars, or Cars + Dystopia, or everything). Genres already exist and
@@ -402,3 +398,17 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   rewind is up to ~600 ms of video jumping backwards and the host windows are still hidden, so
   nobody sees it. **This is not a drift fix** — once two mpv instances are in step they stay in
   step, and adding a timer or a periodic re-sync would be solving a problem that does not exist.
+  - **Pipes are filtered at send time, not trusted from settle.** `AlignPlayers` sends only to
+    players whose `MpvHost.IsIpcPipeUp` is true right then. The settle step (`PlayerSettle.Decide`)
+    does **not** guarantee every survivor's pipe is up by the time `sync` runs: its `PlayerDied` exit
+    fires before `allPipesUp` is even consulted, and its `TimedOut` exit means the cap was reached
+    with `allPipesUp` still false. Either one can hand `AlignPlayers` a player whose pipe was never
+    confirmed, so it re-checks rather than assuming.
+  - **The wait is cancellable, and that is what keeps the 300 ms cap safe.** `PlayerSync.Timeout`
+    (300 ms) is deliberately *below* `MpvIpc.ConnectTimeoutMs` (500 ms): `PlayerSync.AlignAsync` sends
+    sequentially and takes a `CancellationToken` that `AlignPlayers` cancels the instant its wait loop
+    exits. Without that, a single pipe that never comes up would let the pass thread give up at
+    300 ms while the background task kept retrying for up to another 500 ms per remaining pipe — and
+    the later players' seeks would land after `RevealPlayers` had already shown the wallpaper, a
+    visible rewind rather than a missed alignment. Do not raise `PlayerSync.Timeout` above
+    `MpvIpc.ConnectTimeoutMs` as a fix for anything; the cancellation is the fix, not the margin.

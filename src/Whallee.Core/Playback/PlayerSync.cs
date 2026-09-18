@@ -27,6 +27,22 @@ public static class PlayerSync
     /// The cap on that wait. Timing out is NOT an error: it means the wallpaper appears with the
     /// players possibly unaligned, which is what happened before this class existed.
     /// </summary>
+    /// <remarks>
+    /// DELIBERATELY BELOW <see cref="MpvIpc.ConnectTimeoutMs"/> (500 ms), not above it. Raising this
+    /// past 500 ms would let every pass wait a full extra 200 ms for the wallpaper to appear, just
+    /// to accommodate the rare pipe that never comes up - a bad trade for something that already
+    /// degrades safely.
+    ///
+    /// What makes staying below it safe rather than merely faster is cancellation:
+    /// <see cref="AlignAsync"/> takes a <see cref="CancellationToken"/> and
+    /// WallpaperEngine.AlignPlayers cancels it the moment this cap elapses, which stops every send
+    /// AFTER whichever one is currently blocked inside <see cref="MpvIpc.Send"/>'s named-pipe
+    /// connect. Without that cancellation, a single slow pipe would let the pass thread give up here
+    /// at 300 ms while the background task kept running for up to another
+    /// <see cref="MpvIpc.ConnectTimeoutMs"/> per remaining pipe - and land seeks against a wallpaper
+    /// that had already been revealed. That was worse than the bug this class exists to fix: a
+    /// silent constant offset became a visible multi-display rewind.
+    /// </remarks>
     public static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(300);
 
     /// <summary>Whether a set of this size is worth aligning at all.</summary>
@@ -35,24 +51,49 @@ public static class PlayerSync
     /// <summary>
     /// Seeks every player to the start. Never throws.
     /// </summary>
+    /// <param name="pipeNames">
+    /// The players to seek. THE CALLER FILTERS THIS, not this method - it is expected to already be
+    /// narrowed to pipes confirmed up (<see cref="MpvHost.IsIpcPipeUp"/>) at send time. Do not treat
+    /// "the settle step waited for pipes" as proof they are still all up by the time this runs:
+    /// settle's PlayerDied and TimedOut exits (see PlayerSettle.Decide) both reach the caller without
+    /// every pipe having been confirmed - a died player never reached allPipesUp, and a timeout by
+    /// definition means the cap ran out with at least one pipe still down.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Checked BETWEEN sends, never during one - <see cref="MpvIpc.Send"/>'s blocking named-pipe
+    /// connect is not interruptible, so a send already in flight always runs to its own completion or
+    /// its own <see cref="MpvIpc.ConnectTimeoutMs"/>. What cancellation buys is stopping every send
+    /// AFTER that one: <see cref="WallpaperEngine.AlignPlayers"/> cancels this the moment its
+    /// <see cref="Timeout"/> cap elapses, which is what stops an abandoned pipe's eventual connect
+    /// failure from letting a LATER pipe's seek land after the wallpaper has already been revealed.
+    /// See the remarks on <see cref="Timeout"/> for the full failure mode this closes.
+    /// </param>
     /// <remarks>
     /// RUNS OFF THE CALLING THREAD, and that is the whole reason this returns a Task rather than
-    /// doing the work inline. MpvIpc.Send BLOCKS on a named-pipe connect with a 500 ms timeout, and
-    /// the pass thread owns windows re-parented into Explorer's desktop - three unreachable pipes
-    /// inline would be a second and a half of frozen desktop.
+    /// doing the work inline. MpvIpc.Send BLOCKS on a named-pipe connect with a
+    /// <see cref="MpvIpc.ConnectTimeoutMs"/> timeout, and the pass thread owns windows re-parented
+    /// into Explorer's desktop - three unreachable pipes inline would be a second and a half of
+    /// frozen desktop.
     ///
     /// Sent one after another rather than in parallel. A pipe write is microseconds once the pipe
-    /// is up, and the settle step has already waited for every player's IPC pipe to exist, so the
-    /// sends land within a hair of each other. Parallel tasks would buy nothing measurable and cost
-    /// three threads.
+    /// is up, so for the common case - every pipe genuinely up - the sends land within a hair of
+    /// each other regardless. Parallel tasks would buy nothing measurable there and would cost three
+    /// threads, and sequential is also what makes per-send cancellation meaningful at all: a
+    /// parallel fan-out has no "remaining sends" left to cancel once every task is already running.
     ///
     /// Failures are ignored on purpose: MpvIpc.Send returns false rather than throwing, and a
     /// player that cannot be reached simply carries on playing where it was - the behaviour this
     /// class replaced.
     /// </remarks>
-    public static Task AlignAsync(IReadOnlyList<string> pipeNames) => Task.Run(() =>
-    {
-        foreach (var pipeName in pipeNames)
-            MpvIpc.Send(pipeName, MpvIpc.SeekToStartCommand);
-    });
+    public static Task AlignAsync(IReadOnlyList<string> pipeNames, CancellationToken cancellationToken) =>
+        Task.Run(() =>
+        {
+            foreach (var pipeName in pipeNames)
+            {
+                // Between sends only - see the cancellationToken remarks above for why that is the
+                // right granularity and the most that is achievable here.
+                if (cancellationToken.IsCancellationRequested) return;
+                MpvIpc.Send(pipeName, MpvIpc.SeekToStartCommand);
+            }
+        });
 }

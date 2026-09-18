@@ -26,8 +26,13 @@ public static class MpvIpc
     /// <remarks>
     /// SHORT ON PURPOSE. A wedged or dying mpv must not hold up the caller, and the cost of giving
     /// up is only that the wallpaper keeps playing - which is what it was doing anyway.
+    ///
+    /// PUBLIC, DELIBERATELY: this number is half of the contract that makes PlayerSync.AlignAsync's
+    /// cancellation safe rather than merely helpful. PlayerSync.Timeout (300 ms) is well BELOW this
+    /// value (500 ms) on purpose - see the remarks there - and the relationship is exercised by
+    /// PlayerSyncTests so a future change to either constant cannot silently break it.
     /// </remarks>
-    private const int ConnectTimeoutMs = 500;
+    public const int ConnectTimeoutMs = 500;
 
     /// <summary>The JSON line that pauses or resumes a player.</summary>
     /// <remarks>

@@ -577,18 +577,73 @@ public sealed class WallpaperEngine : IDisposable
     ///
     /// Running out of the cap is not an error and is not reported. It means the wallpaper appears
     /// with the players possibly unaligned, which is exactly what happened before this existed. The
-    /// background task is left to finish on its own; it never throws.
+    /// background task is left to finish on its own after being told to stop early - see the
+    /// cancellation remarks below - it never throws past this method regardless.
+    ///
+    /// EVERYTHING IN THIS METHOD IS WRAPPED IN A TRY/CATCH THAT SWALLOWS. This is the first throwing
+    /// statement in both StartOnce and SwapOnce's try block after the incoming generation is built,
+    /// and MessagePump.Sleep is a documented throw site: it raises InvalidOperationException when
+    /// MsgWaitForMultipleObjectsEx returns WAIT_FAILED (a desktop switch, a session lock, handle
+    /// exhaustion). If that propagated out of here, RevealPlayers would never run - the incoming
+    /// host windows would stay hidden - and in SwapOnce, keepOutgoing (already latched false by this
+    /// point) would make the finally retire the OUTGOING generation, the one that was actually
+    /// working. The user would be left staring at Explorer's wallpaper with three live, invisible
+    /// mpv processes: exactly the defect SwapOnce exists to prevent. RevealPlayers already guards
+    /// per-host for the identical reason (one monitor's failure must not cost the others theirs);
+    /// this is the same rule one level up - a failed alignment must never cost the reveal.
     /// </remarks>
     private void AlignPlayers()
     {
-        if (!PlayerSync.ShouldAlign(_active.Count)) return;
+        try
+        {
+            // FILTERED HERE, NOT TRUSTED FROM SETTLE. The design premise that "settle already gates
+            // on IsIpcPipeUp for every survivor, so pipes are known to be up by the time this runs"
+            // does not hold: PlayerSettle.Decide returns PlayerDied before ever consulting
+            // allPipesUp, and TimedOut means the cap was reached with allPipesUp still false. Both
+            // exits leave WaitForPlayersToSettle's survivors in _active without their pipe having
+            // been confirmed, so this re-checks the cheap, non-blocking MpvHost.IsIpcPipeUp itself
+            // rather than assuming the wait already proved it.
+            var readyPlayers = _active.Where(a => a.Player.IsIpcPipeUp).ToArray();
+            if (!PlayerSync.ShouldAlign(readyPlayers.Length)) return;
 
-        var pipeNames = _active.Select(a => a.Player.PipeName).ToArray();
-        var work = PlayerSync.AlignAsync(pipeNames);
+            // _active - and therefore readyPlayers, which preserves its order - is in LAUNCH order.
+            // Sending in that order means the player that has been running longest (and so has drifted
+            // furthest from zero) is seeked first, which only ever narrows the spread between players
+            // as the loop proceeds. Aligning a subset in some other order has no such guarantee - it
+            // could easily seek the newest player first and leave the oldest one running, which widens
+            // the spread instead of closing it.
+            var pipeNames = readyPlayers.Select(a => a.Player.PipeName).ToArray();
 
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
-            MessagePump.Sleep(PlayerSync.PollInterval);
+            // Cancelled unconditionally in the finally below, whether the wait loop exits because the
+            // work finished or because the cap elapsed. AlignAsync only checks this BETWEEN sends -
+            // MpvIpc.Send's blocking pipe connect cannot be interrupted mid-flight - so this cannot
+            // speed up whichever send is currently stuck. What it stops is every send AFTER that one:
+            // without it, a pipe that never comes up lets the pass thread give up here at
+            // PlayerSync.Timeout (300 ms) while the background task keeps going for up to another
+            // MpvIpc.ConnectTimeoutMs (500 ms), and the remaining players' seeks would land against a
+            // wallpaper that RevealPlayers had already shown - a visible rewind, not just a missed
+            // alignment. See the remarks on PlayerSync.Timeout for the full scenario this closes.
+            using var cts = new CancellationTokenSource();
+            try
+            {
+                var work = PlayerSync.AlignAsync(pipeNames, cts.Token);
+
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
+                    MessagePump.Sleep(PlayerSync.PollInterval);
+            }
+            finally
+            {
+                cts.Cancel();
+            }
+        }
+        catch (Exception)
+        {
+            // Swallowed on purpose - see the remarks above this method. A failed alignment must
+            // never cost the reveal: the wallpaper appearing possibly-unaligned is the pre-existing,
+            // accepted behaviour this class replaced, and it is always better than the reveal not
+            // happening at all.
+        }
     }
 
     /// <summary>The IPC pipe name for one display in the current generation.</summary>
