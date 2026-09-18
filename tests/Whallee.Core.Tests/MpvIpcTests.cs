@@ -30,4 +30,14 @@ public class MpvIpcTests
     [Fact]
     public void TheCommandCarriesNoNewlineOfItsOwn() =>
         Assert.DoesNotContain("\n", MpvIpc.PauseCommand(true));
+
+    [Fact]
+    public void SeekToStartIsTheExactJsonMpvExpects() =>
+        Assert.Equal("{\"command\":[\"seek\",0,\"absolute\"]}", MpvIpc.SeekToStartCommand);
+
+    // Same reason as the pause command above: mpv reads one JSON object per line and Send appends
+    // exactly one newline.
+    [Fact]
+    public void TheSeekCommandCarriesNoNewlineOfItsOwn() =>
+        Assert.DoesNotContain("\n", MpvIpc.SeekToStartCommand);
 }

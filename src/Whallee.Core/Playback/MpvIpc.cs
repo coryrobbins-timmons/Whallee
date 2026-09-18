@@ -38,6 +38,20 @@ public static class MpvIpc
     public static string PauseCommand(bool paused) =>
         "{\"command\":[\"set_property\",\"pause\"," + (paused ? "true" : "false") + "]}";
 
+    /// <summary>The JSON line that rewinds a player to the beginning of its clip.</summary>
+    /// <remarks>
+    /// A CONSTANT, AND DELIBERATELY NOT A METHOD TAKING A POSITION. The only caller ever seeks to
+    /// zero, and a parameter would invite formatting a number into JSON - which is exactly the trap
+    /// PauseCommand's remarks above record. A .NET bool interpolated there yielded "True"/"False",
+    /// mpv rejected it, and IT FAILED SILENTLY because the pipe write itself still succeeded. A
+    /// double carries the same hazard in another form: on a machine with a comma decimal separator
+    /// 0.5 would be written "0,5" and rejected just as quietly. A constant cannot have that bug.
+    ///
+    /// If a future caller genuinely needs an arbitrary position, add the parameter then - with
+    /// CultureInfo.InvariantCulture, and a test that fails without it.
+    /// </remarks>
+    public const string SeekToStartCommand = "{\"command\":[\"seek\",0,\"absolute\"]}";
+
     /// <summary>
     /// Writes one command line to a player's pipe. Returns false when the player could not be
     /// reached.
