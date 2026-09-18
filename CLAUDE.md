@@ -253,6 +253,11 @@ confirmation says so, and that wording is load-bearing.
    it. The exception is documented at `UrlImportDialog.CheckToolAge` and in
    `YtDlpVersion.DialogWarning`. Do not delete that line as a rule violation; do not take it as
    licence to reintroduce network predictions.
+6. **`MessagePump.RunUntil(Task)` is for the console harness only.** It is a blocking `GetMessageW`
+   pump and in a WPF app it fights the framework's own message loop. When a pass step needs to wait
+   on background work — `WallpaperEngine.AlignPlayers` is the example — poll with
+   `MessagePump.Sleep` the way `WaitForPlayersToSettle` does. The method whose name fits best is
+   the one that must not be used.
 
 ## Build and test
 
@@ -389,3 +394,11 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   Give them **short** commands, **one at a time**. `$env:OneDrive` =
   `C:\Users\cory.robbins\OneDrive - Timmons Group Inc` and halves a `cd`. Running the built exe
   directly beats `dotnet run` — no `--project` path and no `--` separator to mangle.
+- **The players are launched staggered and are aligned once, by a seek, before the reveal.**
+  `BuildPlayers` starts three mpv processes back to back — `launchMpv 940` in a real profile,
+  roughly 300 ms apart each — and each then loops on its own clock, so the starting offset is
+  permanent. The `sync` step seeks every surviving player to zero between `VerifyPlayersStarted`
+  and `RevealPlayers`, at **both** reveal call sites. **Before the reveal is load-bearing**: the
+  rewind is up to ~600 ms of video jumping backwards and the host windows are still hidden, so
+  nobody sees it. **This is not a drift fix** — once two mpv instances are in step they stay in
+  step, and adding a timer or a periodic re-sync would be solving a problem that does not exist.
