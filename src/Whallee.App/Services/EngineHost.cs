@@ -147,6 +147,13 @@ public sealed class EngineHost : IDisposable
         // stage owns those seconds. See PassProfile.
         if (_engine?.LastPassProfile is { } profile)
             _reporter.Report(profile);
+
+        // DIAGNOSTIC, added 2026-09-21 while chasing a display that stays behind the other two. The
+        // pass profile's "sync NN" says how long the step took and nothing about what it achieved -
+        // which is the only thing that distinguishes a seek that was never sent from one that was
+        // sent and did nothing. See WallpaperEngine.LastSyncDetail.
+        if (_engine?.LastSyncDetail is { } sync)
+            _reporter.Report(sync);
     }
 
     private void SeedDefaults()

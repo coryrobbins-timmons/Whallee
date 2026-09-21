@@ -85,15 +85,27 @@ public static class PlayerSync
     /// player that cannot be reached simply carries on playing where it was - the behaviour this
     /// class replaced.
     /// </remarks>
-    public static Task AlignAsync(IReadOnlyList<string> pipeNames, CancellationToken cancellationToken) =>
+    /// <returns>
+    /// How many players accepted the seek.
+    /// </returns>
+    /// <remarks>
+    /// THE COUNT IS DIAGNOSTIC, added 2026-09-21. The owner reported two displays aligning and a
+    /// third lagging behind, and the log could not tell "the third seek was never sent" from "it was
+    /// sent and did nothing" - two symptoms with completely different fixes. MpvIpc.Send has always
+    /// returned that answer; this method used to discard it.
+    /// </remarks>
+    public static Task<int> AlignAsync(IReadOnlyList<string> pipeNames, CancellationToken cancellationToken) =>
         Task.Run(() =>
         {
+            var sent = 0;
             foreach (var pipeName in pipeNames)
             {
                 // Between sends only - see the cancellationToken remarks above for why that is the
                 // right granularity and the most that is achievable here.
-                if (cancellationToken.IsCancellationRequested) return;
-                MpvIpc.Send(pipeName, MpvIpc.SeekToStartCommand);
+                if (cancellationToken.IsCancellationRequested) return sent;
+                if (MpvIpc.Send(pipeName, MpvIpc.SeekToStartCommand)) sent++;
             }
+
+            return sent;
         });
 }

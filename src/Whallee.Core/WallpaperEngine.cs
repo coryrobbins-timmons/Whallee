@@ -64,6 +64,20 @@ public sealed class WallpaperEngine : IDisposable
     /// </summary>
     public string? LastPassProfile { get; private set; }
 
+    /// <summary>
+    /// What the most recent <c>sync</c> step actually did, or null if it has not run.
+    /// </summary>
+    /// <remarks>
+    /// DIAGNOSTIC, added 2026-09-21, and deliberately separate from <see cref="LastErrors"/> - none
+    /// of this is an error. The owner reported two displays aligning and a third lagging BEHIND
+    /// them, every time, on the same monitor. The pass profile said "sync 18" and nothing else,
+    /// which cannot distinguish two very different faults: a seek that was never sent (the pipe
+    /// filter dropped that player) from a seek that was sent and did nothing (the player had not
+    /// begun rendering, so rewinding it to zero was a no-op). Those need completely different
+    /// fixes, so the log has to say which.
+    /// </remarks>
+    public string? LastSyncDetail { get; private set; }
+
     /// <summary>The pass currently being timed. Null outside a pass.</summary>
     private PassProfile? _profile;
 
@@ -604,7 +618,18 @@ public sealed class WallpaperEngine : IDisposable
             // been confirmed, so this re-checks the cheap, non-blocking MpvHost.IsIpcPipeUp itself
             // rather than assuming the wait already proved it.
             var readyPlayers = _active.Where(a => a.Player.IsIpcPipeUp).ToArray();
-            if (!PlayerSync.ShouldAlign(readyPlayers.Length)) return;
+
+            // Named in LAUNCH order, which is the order they are seeked in, so the log shows which
+            // display was last to start - the one most likely not to be rendering yet when its seek
+            // arrives. See LastSyncDetail.
+            var ready = string.Join(", ", readyPlayers.Select(a => a.Display.DeviceName));
+
+            if (!PlayerSync.ShouldAlign(readyPlayers.Length))
+            {
+                LastSyncDetail =
+                    $"sync skipped: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready})";
+                return;
+            }
 
             // _active - and therefore readyPlayers, which preserves its order - is in LAUNCH order.
             // Sending in that order means the player that has been running longest (and so has drifted
@@ -631,6 +656,16 @@ public sealed class WallpaperEngine : IDisposable
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
                     MessagePump.Sleep(PlayerSync.PollInterval);
+
+                // Result is only safe to read once the task has completed - reading it earlier would
+                // BLOCK, on the one thread in this process where blocking freezes the user's whole
+                // desktop. When the cap elapsed first, how many landed is exactly what we do not
+                // know, and saying so is more useful than a number that might be a lie.
+                LastSyncDetail = work.IsCompletedSuccessfully
+                    ? $"sync: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}), "
+                      + $"{work.Result} seeked"
+                    : $"sync TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms: "
+                      + $"{_active.Count} active, {readyPlayers.Length} with a live pipe ({ready})";
             }
             finally
             {
