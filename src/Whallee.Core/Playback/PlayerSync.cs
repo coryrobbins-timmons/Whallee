@@ -105,37 +105,33 @@ public static class PlayerSync
     /// await, and every continuation would be posted BACK to that thread - putting blocking pipe I/O
     /// on the one thread in this process where blocking freezes the user's whole desktop.
     /// </remarks>
-    public static Task<SyncReport> AlignAsync(
-        IReadOnlyList<string> pipeNames, CancellationToken cancellationToken) =>
+    public static Task<int> AlignAsync(
+        IReadOnlyList<string> pipeNames, double?[] before, CancellationToken cancellationToken) =>
         Task.Run(async () =>
         {
-            var before = new double?[pipeNames.Count];
-            var after = new double?[pipeNames.Count];
-            var sent = 0;
-
-            for (var i = 0; i < pipeNames.Count; i++)
+            // BEFORE-VALUES ONLY, not before AND after. Measuring both was tried on 2026-09-21 and
+            // cost about 255 ms against this method's 300 ms budget, so every sync timed out and the
+            // players stopped being aligned at all - a diagnostic that broke the thing it was
+            // measuring. The before-values are also the discriminating ones on their own: if the
+            // players are already all at zero when we get here, they were never apart in POSITION,
+            // and seeking them cannot be what fixes a stagger.
+            for (var i = 0; i < pipeNames.Count && i < before.Length; i++)
             {
-                if (cancellationToken.IsCancellationRequested) return new SyncReport(sent, before, after);
+                if (cancellationToken.IsCancellationRequested) return 0;
                 before[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)
                     .ConfigureAwait(false);
             }
 
+            var sent = 0;
             for (var i = 0; i < pipeNames.Count; i++)
             {
                 // Between sends only - see the cancellationToken remarks above for why that is the
                 // right granularity and the most that is achievable here.
-                if (cancellationToken.IsCancellationRequested) return new SyncReport(sent, before, after);
+                if (cancellationToken.IsCancellationRequested) return sent;
                 if (MpvIpc.Send(pipeNames[i], MpvIpc.SeekToStartCommand)) sent++;
             }
 
-            for (var i = 0; i < pipeNames.Count; i++)
-            {
-                if (cancellationToken.IsCancellationRequested) return new SyncReport(sent, before, after);
-                after[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            return new SyncReport(sent, before, after);
+            return sent;
         });
 
     /// <summary>Renders a set of positions for the log: "1.42 / 0.88 / -" with "-" for no answer.</summary>
@@ -146,9 +142,3 @@ public static class PlayerSync
                 p is { } seconds ? seconds.ToString("F2", CultureInfo.InvariantCulture) : "-"));
 }
 
-/// <summary>What one alignment attempt did.</summary>
-/// <param name="Sent">How many players accepted the seek.</param>
-/// <param name="Before">Each player's reported position just before it was seeked.</param>
-/// <param name="After">Each player's reported position just after.</param>
-public readonly record struct SyncReport(
-    int Sent, IReadOnlyList<double?> Before, IReadOnlyList<double?> After);

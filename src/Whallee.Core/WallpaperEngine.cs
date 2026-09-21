@@ -651,7 +651,13 @@ public sealed class WallpaperEngine : IDisposable
             using var cts = new CancellationTokenSource();
             try
             {
-                var work = PlayerSync.AlignAsync(pipeNames, cts.Token);
+                // OWNED BY THIS METHOD, NOT RETURNED BY THE TASK, so the measurements survive a
+                // timeout. Returning them meant they could only be read once the task had completed
+                // successfully - and a timeout is precisely the case where knowing how far it got is
+                // most useful. The task fills this as it goes and we read whatever landed.
+                var before = new double?[readyPlayers.Length];
+
+                var work = PlayerSync.AlignAsync(pipeNames, before, cts.Token);
 
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
@@ -661,13 +667,13 @@ public sealed class WallpaperEngine : IDisposable
                 // BLOCK, on the one thread in this process where blocking freezes the user's whole
                 // desktop. When the cap elapsed first, how many landed is exactly what we do not
                 // know, and saying so is more useful than a number that might be a lie.
-                LastSyncDetail = work.IsCompletedSuccessfully
-                    ? $"sync: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}), "
-                      + $"{work.Result.Sent} seeked; "
-                      + $"before {PlayerSync.Describe(work.Result.Before)} "
-                      + $"-> after {PlayerSync.Describe(work.Result.After)}"
-                    : $"sync TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms: "
-                      + $"{_active.Count} active, {readyPlayers.Length} with a live pipe ({ready})";
+                var seeked = work.IsCompletedSuccessfully
+                    ? $"{work.Result} seeked"
+                    : $"TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms";
+
+                LastSyncDetail =
+                    $"sync: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}), "
+                    + $"{seeked}; positions before the seek: {PlayerSync.Describe(before)}";
             }
             finally
             {

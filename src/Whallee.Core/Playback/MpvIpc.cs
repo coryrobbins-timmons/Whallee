@@ -41,7 +41,17 @@ public static class MpvIpc
     /// when the player is gone, a read fails when the player is alive but not answering. Both end in
     /// the same place - null, and the caller carries on.
     /// </remarks>
-    public const int ReadTimeoutMs = 400;
+    /// <remarks>
+    /// MEASURED, NOT GUESSED. A headless mpv answered a time-pos query in 31 ms on 2026-09-21
+    /// (connect 8 ms), so 120 ms is roughly four times the observed cost and still leaves room for
+    /// three queries inside PlayerSync.Timeout's 300 ms budget.
+    ///
+    /// THIS VALUE MUST STAY WELL UNDER PlayerSync.Timeout. It was first set to 400 ms, above that
+    /// 300 ms cap, and a single unanswered query then consumed the whole alignment budget - every
+    /// sync timed out, the players stopped being aligned at all, and the log reported no
+    /// measurements. Exactly the relationship PlayerSyncTests already guards for ConnectTimeoutMs.
+    /// </remarks>
+    public const int ReadTimeoutMs = 120;
 
     /// <summary>
     /// Asks a player where it is in its clip, in seconds. Null when the answer could not be had.
