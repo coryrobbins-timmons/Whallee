@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO.Pipes;
 using System.Text;
 
@@ -33,6 +34,33 @@ public static class MpvIpc
     /// PlayerSyncTests so a future change to either constant cannot silently break it.
     /// </remarks>
     public const int ConnectTimeoutMs = 500;
+
+    /// <summary>How long to wait for mpv's reply once a query has been written.</summary>
+    /// <remarks>
+    /// Separate from the connect timeout because they fail for different reasons: a connect fails
+    /// when the player is gone, a read fails when the player is alive but not answering. Both end in
+    /// the same place - null, and the caller carries on.
+    /// </remarks>
+    public const int ReadTimeoutMs = 400;
+
+    /// <summary>
+    /// Asks a player where it is in its clip, in seconds. Null when the answer could not be had.
+    /// </summary>
+    /// <remarks>
+    /// DIAGNOSTIC, added 2026-09-21. Until now this class could only WRITE: it sent bytes and hoped,
+    /// and nothing in Whallee could confirm that any IPC command took effect. That blind spot is
+    /// exactly what stalled a real investigation - the owner reported three displays out of step, the
+    /// log proved all three seeks were accepted, and there was no way to see whether the players
+    /// actually moved.
+    ///
+    /// The request carries a request_id so the reply can be told apart from mpv's unsolicited event
+    /// lines, which arrive on the same pipe and would otherwise be read as the answer.
+    /// </remarks>
+    public const string TimePosRequest =
+        "{\"command\":[\"get_property\",\"time-pos\"],\"request_id\":7}";
+
+    /// <summary>Marks the reply that answers <see cref="TimePosRequest"/>.</summary>
+    public const string TimePosRequestId = "\"request_id\":7";
 
     /// <summary>The JSON line that pauses or resumes a player.</summary>
     /// <remarks>
@@ -87,6 +115,96 @@ public static class MpvIpc
         catch (Exception)
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Pulls the seconds out of mpv's reply to <see cref="TimePosRequest"/>. Null when the line is
+    /// not that reply, or carries no usable number.
+    /// </summary>
+    /// <remarks>
+    /// PARSED BY HAND rather than with a JSON reader, to match how the commands are built in this
+    /// file and to keep Whallee.Core free of a dependency for one number.
+    ///
+    /// InvariantCulture IS LOAD-BEARING. mpv always emits a '.' decimal separator; parsing with the
+    /// current culture on a machine set to a comma separator would read "12.5" as unparseable and
+    /// this would silently report "no answer" on every query. That is the same class of bug the
+    /// SeekToStartCommand comment above exists to prevent, in the opposite direction.
+    /// </remarks>
+    public static double? ParseTimePos(string? reply)
+    {
+        if (string.IsNullOrWhiteSpace(reply)) return null;
+
+        const string key = "\"data\":";
+        var at = reply.IndexOf(key, StringComparison.Ordinal);
+        if (at < 0) return null;
+
+        var from = at + key.Length;
+        var to = from;
+        while (to < reply.Length && reply[to] != ',' && reply[to] != '}') to++;
+
+        var value = reply[from..to].Trim();
+        return double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)
+            ? seconds
+            : null;   // "null" when the player has no position yet - not an error, just no answer
+    }
+
+    /// <summary>
+    /// Asks one player for its playback position. Null when it could not be reached or did not
+    /// answer in time. Never throws.
+    /// </summary>
+    /// <remarks>
+    /// BLOCKS - CALL IT FROM A BACKGROUND THREAD, for the same reason <see cref="Send"/> says so,
+    /// and more so: this one waits for a reply as well as for a connect.
+    ///
+    /// Reads LINES UNTIL THE ONE THAT ANSWERS, because mpv pushes unsolicited event objects down the
+    /// same pipe. Taking the first line that arrives would read an event as the answer and report a
+    /// position that was never asked for.
+    /// </remarks>
+    public static async Task<double?> QueryTimePosAsync(string pipeName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(ReadTimeoutMs);
+            var token = timeout.Token;
+
+            using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut);
+            await pipe.ConnectAsync(ConnectTimeoutMs, token).ConfigureAwait(false);
+
+            var request = Encoding.UTF8.GetBytes(TimePosRequest + "\n");
+            await pipe.WriteAsync(request, token).ConfigureAwait(false);
+            await pipe.FlushAsync(token).ConfigureAwait(false);
+
+            var line = new StringBuilder();
+            var one = new byte[1];
+
+            // Bounded twice over: by the linked token's deadline, and by a ceiling on how much we
+            // will read before giving up. A player streaming events faster than we can match them
+            // must not keep this loop alive indefinitely.
+            for (var read = 0; read < 64 * 1024; read++)
+            {
+                if (await pipe.ReadAsync(one.AsMemory(0, 1), token).ConfigureAwait(false) == 0)
+                    return null;   // pipe closed mid-answer
+
+                if (one[0] != (byte)'\n')
+                {
+                    line.Append((char)one[0]);
+                    continue;
+                }
+
+                var candidate = line.ToString();
+                line.Clear();
+
+                if (candidate.Contains(TimePosRequestId, StringComparison.Ordinal))
+                    return ParseTimePos(candidate);
+            }
+
+            return null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 }

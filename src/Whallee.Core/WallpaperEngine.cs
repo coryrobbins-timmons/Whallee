@@ -663,7 +663,9 @@ public sealed class WallpaperEngine : IDisposable
                 // know, and saying so is more useful than a number that might be a lie.
                 LastSyncDetail = work.IsCompletedSuccessfully
                     ? $"sync: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}), "
-                      + $"{work.Result} seeked"
+                      + $"{work.Result.Sent} seeked; "
+                      + $"before {PlayerSync.Describe(work.Result.Before)} "
+                      + $"-> after {PlayerSync.Describe(work.Result.After)}"
                     : $"sync TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms: "
                       + $"{_active.Count} active, {readyPlayers.Length} with a live pipe ({ready})";
             }

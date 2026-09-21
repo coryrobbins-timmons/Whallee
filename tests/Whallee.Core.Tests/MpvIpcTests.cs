@@ -1,9 +1,60 @@
+using System.Globalization;
 using Whallee.Core.Playback;
 
 namespace Whallee.Core.Tests;
 
 public class MpvIpcTests
 {
+    [Fact]
+    public void ReadsThePositionOutOfMpvsReply() =>
+        Assert.Equal(12.345, MpvIpc.ParseTimePos(
+            "{\"data\":12.345,\"request_id\":7,\"error\":\"success\"}"));
+
+    [Fact]
+    public void ReadsAWholeNumberPosition() =>
+        Assert.Equal(0d, MpvIpc.ParseTimePos(
+            "{\"data\":0,\"request_id\":7,\"error\":\"success\"}"));
+
+    /// <summary>
+    /// A player that has not begun playing reports its position as JSON null. That is an answer, not
+    /// a failure, and it must read as "no position" rather than as zero - reporting it as 0.00 would
+    /// make a player that never started look perfectly aligned.
+    /// </summary>
+    [Fact]
+    public void APositionOfJsonNullIsNoAnswer() =>
+        Assert.Null(MpvIpc.ParseTimePos(
+            "{\"data\":null,\"request_id\":7,\"error\":\"success\"}"));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("{\"request_id\":7,\"error\":\"property unavailable\"}")]
+    [InlineData("{\"event\":\"playback-restart\"}")]
+    public void GivesNothingForARepyItCannotRead(string? reply) =>
+        Assert.Null(MpvIpc.ParseTimePos(reply));
+
+    /// <summary>
+    /// THE SILENT-FAILURE CASE. mpv always emits a '.' decimal separator. Parsing with the current
+    /// culture on a machine set to a comma would read every position as unparseable, and this would
+    /// report "no answer" for every player while looking like the pipe was at fault.
+    /// </summary>
+    [Fact]
+    public void ReadsThePositionOnACommaDecimalMachine()
+    {
+        var original = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+            Assert.Equal(12.345, MpvIpc.ParseTimePos(
+                "{\"data\":12.345,\"request_id\":7,\"error\":\"success\"}"));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
     [Fact]
     public void PauseCommandIsTheExactJsonMpvExpects() =>
         Assert.Equal("{\"command\":[\"set_property\",\"pause\",true]}",

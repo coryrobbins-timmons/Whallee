@@ -4,6 +4,26 @@ namespace Whallee.Core.Tests;
 
 public class PlayerSyncTests
 {
+    [Fact]
+    public void DescribesPositionsForTheLog() =>
+        Assert.Equal("1.42 / 0.88 / 0.00",
+            PlayerSync.Describe(new double?[] { 1.42, 0.88, 0.0 }));
+
+    /// <summary>
+    /// A player with no position must read as "-", never as 0.00. Those mean opposite things: one is
+    /// a player that never started, the other is a player sitting exactly at the beginning - which
+    /// is what a successful seek looks like. Printing them the same would make the log lie about the
+    /// very thing it was added to measure.
+    /// </summary>
+    [Fact]
+    public void ShowsAMissingPositionAsADashNotAsZero() =>
+        Assert.Equal("1.42 / - / 0.00",
+            PlayerSync.Describe(new double?[] { 1.42, null, 0.0 }));
+
+    [Fact]
+    public void DescribesAnEmptySetWithoutThrowing() =>
+        Assert.Equal("-", PlayerSync.Describe(Array.Empty<double?>()));
+
     /// <summary>
     /// A single display cannot be out of step with anything, and zero players is nothing to do.
     /// Sending a seek in either case would rewind a wallpaper for no reason at all.

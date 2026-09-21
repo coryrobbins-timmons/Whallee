@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Whallee.Core.Playback;
 
 /// <summary>
@@ -86,26 +88,67 @@ public static class PlayerSync
     /// class replaced.
     /// </remarks>
     /// <returns>
-    /// How many players accepted the seek.
+    /// What happened: how many players accepted the seek, and where each one reported being
+    /// immediately before and immediately after it.
     /// </returns>
     /// <remarks>
-    /// THE COUNT IS DIAGNOSTIC, added 2026-09-21. The owner reported two displays aligning and a
-    /// third lagging behind, and the log could not tell "the third seek was never sent" from "it was
-    /// sent and did nothing" - two symptoms with completely different fixes. MpvIpc.Send has always
-    /// returned that answer; this method used to discard it.
+    /// THE MEASUREMENTS ARE DIAGNOSTIC, added 2026-09-21. The owner reported displays out of step;
+    /// the log then proved every seek was delivered and accepted, and the displays were still out of
+    /// step. At that point the only unanswered question was whether the players actually MOVED, and
+    /// this class could not see - MpvIpc could only write. The before/after positions answer it
+    /// directly: identical before-values mean the players were never apart in position and seeking
+    /// was the wrong mechanism; non-zero after-values mean the seek was accepted and ignored.
+    ///
+    /// STILL WRAPPED IN Task.Run, and that is not redundant now the body is async. The caller is the
+    /// pass thread, which owns windows re-parented into Explorer's desktop AND carries a WPF
+    /// SynchronizationContext. Without Task.Run the method would run synchronously up to its first
+    /// await, and every continuation would be posted BACK to that thread - putting blocking pipe I/O
+    /// on the one thread in this process where blocking freezes the user's whole desktop.
     /// </remarks>
-    public static Task<int> AlignAsync(IReadOnlyList<string> pipeNames, CancellationToken cancellationToken) =>
-        Task.Run(() =>
+    public static Task<SyncReport> AlignAsync(
+        IReadOnlyList<string> pipeNames, CancellationToken cancellationToken) =>
+        Task.Run(async () =>
         {
+            var before = new double?[pipeNames.Count];
+            var after = new double?[pipeNames.Count];
             var sent = 0;
-            foreach (var pipeName in pipeNames)
+
+            for (var i = 0; i < pipeNames.Count; i++)
+            {
+                if (cancellationToken.IsCancellationRequested) return new SyncReport(sent, before, after);
+                before[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            for (var i = 0; i < pipeNames.Count; i++)
             {
                 // Between sends only - see the cancellationToken remarks above for why that is the
                 // right granularity and the most that is achievable here.
-                if (cancellationToken.IsCancellationRequested) return sent;
-                if (MpvIpc.Send(pipeName, MpvIpc.SeekToStartCommand)) sent++;
+                if (cancellationToken.IsCancellationRequested) return new SyncReport(sent, before, after);
+                if (MpvIpc.Send(pipeNames[i], MpvIpc.SeekToStartCommand)) sent++;
             }
 
-            return sent;
+            for (var i = 0; i < pipeNames.Count; i++)
+            {
+                if (cancellationToken.IsCancellationRequested) return new SyncReport(sent, before, after);
+                after[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            return new SyncReport(sent, before, after);
         });
+
+    /// <summary>Renders a set of positions for the log: "1.42 / 0.88 / -" with "-" for no answer.</summary>
+    public static string Describe(IReadOnlyList<double?> positions) =>
+        positions.Count == 0
+            ? "-"
+            : string.Join(" / ", positions.Select(p =>
+                p is { } seconds ? seconds.ToString("F2", CultureInfo.InvariantCulture) : "-"));
 }
+
+/// <summary>What one alignment attempt did.</summary>
+/// <param name="Sent">How many players accepted the seek.</param>
+/// <param name="Before">Each player's reported position just before it was seeked.</param>
+/// <param name="After">Each player's reported position just after.</param>
+public readonly record struct SyncReport(
+    int Sent, IReadOnlyList<double?> Before, IReadOnlyList<double?> After);
