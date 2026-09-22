@@ -216,6 +216,14 @@ public partial class LibraryPage : UserControl
                     // Success == false always carries a user-facing Message, never null - shown
                     // as-is rather than composing a new one.
                     ShowImportResult(outcome.Message, detail: null, isError: true);
+
+                    // THIS BRANCH RETURNS RATHER THAN THROWING, so the catch below - where the
+                    // exception-path notification lives - never runs for it. Without a call here,
+                    // the ordinary failure case (yt-dlp reporting a message, not crashing) would
+                    // show the in-app card and raise no Windows notification at all, which is
+                    // exactly the multi-minute-import-while-away scenario this feature exists for.
+                    (Application.Current as App)?.Notify(
+                        "Whallee — import failed", outcome.Message, failed: true);
                     return;
                 }
 
