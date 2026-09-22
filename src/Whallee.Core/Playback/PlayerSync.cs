@@ -45,9 +45,6 @@ public static class PlayerSync
     /// </remarks>
     public static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(1000);
 
-    /// <summary>Whether a set of this size is worth aligning at all.</summary>
-    public static bool ShouldAlign(int playerCount) => playerCount >= 2;
-
     /// <summary>Whether every player has reported a playback position.</summary>
     /// <remarks>
     /// THIS IS THE CONDITION THAT WAS MISSING, and the whole reason the previous mechanism achieved
@@ -87,87 +84,93 @@ public static class PlayerSync
     }
 
     /// <summary>
-    /// Seeks every player to the start. Never throws.
+    /// Waits for every player to start playing, then brings them into step: pause, seek to zero,
+    /// resume together. Never throws.
     /// </summary>
-    /// <param name="pipeNames">
-    /// The players to seek. THE CALLER FILTERS THIS, not this method - it is expected to already be
-    /// narrowed to pipes confirmed up (<see cref="MpvHost.IsIpcPipeUp"/>) at send time. Do not treat
-    /// "the settle step waited for pipes" as proof they are still all up by the time this runs:
-    /// settle's PlayerDied and TimedOut exits (see PlayerSettle.Decide) both reach the caller without
-    /// every pipe having been confirmed - a died player never reached allPipesUp, and a timeout by
-    /// definition means the cap ran out with at least one pipe still down.
-    /// </param>
-    /// <param name="cancellationToken">
-    /// Checked BETWEEN sends, never during one - <see cref="MpvIpc.Send"/>'s blocking named-pipe
-    /// connect is not interruptible, so a send already in flight always runs to its own completion or
-    /// its own <see cref="MpvIpc.ConnectTimeoutMs"/>. What cancellation buys is stopping every send
-    /// AFTER that one: <see cref="WallpaperEngine.AlignPlayers"/> cancels this the moment its
-    /// <see cref="Timeout"/> cap elapses, which is what stops an abandoned pipe's eventual connect
-    /// failure from letting a LATER pipe's seek land after the wallpaper has already been revealed.
-    /// See the remarks on <see cref="Timeout"/> for the full failure mode this closes.
-    /// </param>
     /// <remarks>
-    /// RUNS OFF THE CALLING THREAD, and that is the whole reason this returns a Task rather than
-    /// doing the work inline. MpvIpc.Send BLOCKS on a named-pipe connect with a
-    /// <see cref="MpvIpc.ConnectTimeoutMs"/> timeout, and the pass thread owns windows re-parented
-    /// into Explorer's desktop - three unreachable pipes inline would be a second and a half of
-    /// frozen desktop.
+    /// THREE PHASES, AND THE BOUNDARY BETWEEN THEM IS THE SAFETY PROPERTY OF THIS WHOLE DESIGN.
     ///
-    /// Sent one after another rather than in parallel. A pipe write is microseconds once the pipe
-    /// is up, so for the common case - every pipe genuinely up - the sends land within a hair of
-    /// each other regardless. Parallel tasks would buy nothing measurable there and would cost three
-    /// threads, and sequential is also what makes per-send cancellation meaningful at all: a
-    /// parallel fan-out has no "remaining sends" left to cancel once every task is already running.
+    /// Phase 1, waiting, is cancellable: nothing has been touched, so giving up costs only the
+    /// alignment - which is what the pass did before any of this existed.
     ///
-    /// Failures are ignored on purpose: MpvIpc.Send returns false rather than throwing, and a
-    /// player that cannot be reached simply carries on playing where it was - the behaviour this
-    /// class replaced.
+    /// Phases 2 to 4 - pause, seek, resume - are NOT cancellable once begun. A cancellation between
+    /// a pause and its resume leaves that display frozen on a single frame indefinitely, which is
+    /// far worse than the stagger being fixed. The finally block resumes everything that was paused
+    /// on every exit path including an exception, and a resume is idempotent, so resuming twice is
+    /// harmless while missing one is not.
+    ///
+    /// ONLY PLAYERS WHOSE PAUSE WAS ACCEPTED ARE TOUCHED FURTHER. MpvIpc.Send returns false for a
+    /// player it could not reach, and such a player is never added to the paused set - so it is
+    /// never seeked, never resumed, and keeps playing exactly as it does today. This is why the
+    /// pause is applied HERE rather than as --pause on the command line: a player launched paused
+    /// whose IPC pipe never binds could never be freed, and this repo already records that pipe
+    /// binding silently failing (see WallpaperEngine.PipeNameFor).
     /// </remarks>
-    /// <returns>
-    /// What happened: how many players accepted the seek, and where each one reported being
-    /// immediately before and immediately after it.
-    /// </returns>
-    /// <remarks>
-    /// THE MEASUREMENTS ARE DIAGNOSTIC, added 2026-09-21. The owner reported displays out of step;
-    /// the log then proved every seek was delivered and accepted, and the displays were still out of
-    /// step. At that point the only unanswered question was whether the players actually MOVED, and
-    /// this class could not see - MpvIpc could only write. The before/after positions answer it
-    /// directly: identical before-values mean the players were never apart in position and seeking
-    /// was the wrong mechanism; non-zero after-values mean the seek was accepted and ignored.
-    ///
-    /// STILL WRAPPED IN Task.Run, and that is not redundant now the body is async. The caller is the
-    /// pass thread, which owns windows re-parented into Explorer's desktop AND carries a WPF
-    /// SynchronizationContext. Without Task.Run the method would run synchronously up to its first
-    /// await, and every continuation would be posted BACK to that thread - putting blocking pipe I/O
-    /// on the one thread in this process where blocking freezes the user's whole desktop.
-    /// </remarks>
-    public static Task<int> AlignAsync(
-        IReadOnlyList<string> pipeNames, double?[] before, CancellationToken cancellationToken) =>
+    public static Task<ReleaseReport> AlignAsync(
+        IReadOnlyList<string> pipeNames, double?[] observed, CancellationToken cancellationToken) =>
         Task.Run(async () =>
         {
-            // BEFORE-VALUES ONLY, not before AND after. Measuring both was tried on 2026-09-21 and
-            // cost about 255 ms against this method's 300 ms budget, so every sync timed out and the
-            // players stopped being aligned at all - a diagnostic that broke the thing it was
-            // measuring. The before-values are also the discriminating ones on their own: if the
-            // players are already all at zero when we get here, they were never apart in POSITION,
-            // and seeking them cannot be what fixes a stagger.
-            for (var i = 0; i < pipeNames.Count && i < before.Length; i++)
+            // PHASE 1 - WAIT UNTIL EVERY PLAYER IS PLAYING. Cancellable.
+            var ready = false;
+            while (!cancellationToken.IsCancellationRequested)
             {
-                if (cancellationToken.IsCancellationRequested) return 0;
-                before[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)
-                    .ConfigureAwait(false);
+                for (var i = 0; i < pipeNames.Count && i < observed.Length; i++)
+                    observed[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)
+                        .ConfigureAwait(false);
+
+                if (AllPlaying(observed)) { ready = true; break; }
+
+                // A round of queries against an unanswering player already costs
+                // MpvIpc.ReadTimeoutMs each, so this is a courtesy rather than the pacing.
+                try { await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
             }
 
-            var sent = 0;
-            for (var i = 0; i < pipeNames.Count; i++)
+            if (!ready) return new ReleaseReport(false, 0, 0, 0, 0);
+
+            var paused = new List<string>(pipeNames.Count);
+            var seeked = 0;
+            var resumed = 0;
+            var retried = 0;
+            try
             {
-                // Between sends only - see the cancellationToken remarks above for why that is the
-                // right granularity and the most that is achievable here.
-                if (cancellationToken.IsCancellationRequested) return sent;
-                if (MpvIpc.Send(pipeNames[i], MpvIpc.SeekToStartCommand)) sent++;
+                // PHASE 2 - PAUSE, remembering exactly who accepted it.
+                foreach (var pipeName in pipeNames)
+                    if (MpvIpc.Send(pipeName, MpvIpc.PauseCommand(true))) paused.Add(pipeName);
+
+                // PHASE 3 - SEEK. Paused players hold position, so this is what closes the gap.
+                foreach (var pipeName in paused)
+                    if (MpvIpc.Send(pipeName, MpvIpc.SeekToStartCommand)) seeked++;
+
+                // PHASE 4 - RESUME, back to back. About 5 ms apart instead of the ~300 ms that
+                // staggered launch produced.
+                foreach (var pipeName in paused)
+                    if (MpvIpc.Send(pipeName, MpvIpc.PauseCommand(false))) resumed++;
+
+                // PHASE 5 - VERIFY. A running player has moved off zero; one still at zero did not
+                // take the resume. Give those one more attempt - a frozen display is the failure
+                // this design exists to avoid, and one retry is cheap insurance against it.
+                var after = new double?[paused.Count];
+                for (var i = 0; i < paused.Count; i++)
+                    after[i] = await MpvIpc.QueryTimePosAsync(paused[i], CancellationToken.None)
+                        .ConfigureAwait(false);
+
+                foreach (var index in StalledIndexes(after))
+                {
+                    MpvIpc.Send(paused[index], MpvIpc.PauseCommand(false));
+                    retried++;
+                }
+            }
+            finally
+            {
+                // BELT AND BRACES, AND NOT REDUNDANT. Phase 4 may have been interrupted by an
+                // exception, or a resume may simply not have landed. Resuming is idempotent; a
+                // display left paused is not recoverable without another pass.
+                foreach (var pipeName in paused)
+                    MpvIpc.Send(pipeName, MpvIpc.PauseCommand(false));
             }
 
-            return sent;
+            return new ReleaseReport(true, paused.Count, seeked, resumed, retried);
         });
 
     /// <summary>Renders a set of positions for the log: "1.42 / 0.88 / -" with "-" for no answer.</summary>
@@ -177,4 +180,13 @@ public static class PlayerSync
             : string.Join(" / ", positions.Select(p =>
                 p is { } seconds ? seconds.ToString("F2", CultureInfo.InvariantCulture) : "-"));
 }
+
+/// <summary>What one alignment attempt did.</summary>
+/// <param name="Ready">Whether every player reported playing before the cap elapsed.</param>
+/// <param name="Paused">How many players accepted a pause, and so were seeked and resumed.</param>
+/// <param name="Seeked">How many accepted the seek.</param>
+/// <param name="Resumed">How many accepted the resume.</param>
+/// <param name="Retried">How many needed a second resume after verification.</param>
+public readonly record struct ReleaseReport(
+    bool Ready, int Paused, int Seeked, int Resumed, int Retried);
 

@@ -624,10 +624,13 @@ public sealed class WallpaperEngine : IDisposable
             // arrives. See LastSyncDetail.
             var ready = string.Join(", ", readyPlayers.Select(a => a.Display.DeviceName));
 
-            if (!PlayerSync.ShouldAlign(readyPlayers.Length))
+            // NO "FEWER THAN TWO, SKIP" SHORTCUT ANY MORE. It was a correct optimisation while this
+            // step only seeked - one display cannot be out of step with anything. It is a trap for a
+            // step that pauses, because every early return is a chance to leave a paused player
+            // unresumed. The step now runs whenever there is a player to talk to.
+            if (readyPlayers.Length == 0)
             {
-                LastSyncDetail =
-                    $"sync skipped: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready})";
+                LastSyncDetail = $"sync skipped: {_active.Count} active, none with a live pipe";
                 return;
             }
 
@@ -655,9 +658,9 @@ public sealed class WallpaperEngine : IDisposable
                 // timeout. Returning them meant they could only be read once the task had completed
                 // successfully - and a timeout is precisely the case where knowing how far it got is
                 // most useful. The task fills this as it goes and we read whatever landed.
-                var before = new double?[readyPlayers.Length];
+                var observed = new double?[readyPlayers.Length];
 
-                var work = PlayerSync.AlignAsync(pipeNames, before, cts.Token);
+                var work = PlayerSync.AlignAsync(pipeNames, observed, cts.Token);
 
                 var watch = System.Diagnostics.Stopwatch.StartNew();
                 while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
@@ -667,13 +670,19 @@ public sealed class WallpaperEngine : IDisposable
                 // BLOCK, on the one thread in this process where blocking freezes the user's whole
                 // desktop. When the cap elapsed first, how many landed is exactly what we do not
                 // know, and saying so is more useful than a number that might be a lie.
-                var seeked = work.IsCompletedSuccessfully
-                    ? $"{work.Result} seeked"
-                    : $"TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms";
+                var report = work.IsCompletedSuccessfully ? work.Result : default;
 
-                LastSyncDetail =
-                    $"sync: {_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}), "
-                    + $"{seeked}; positions before the seek: {PlayerSync.Describe(before)}";
+                LastSyncDetail = !work.IsCompletedSuccessfully
+                    ? $"sync TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms: "
+                      + $"{_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}); "
+                      + $"last positions seen: {PlayerSync.Describe(observed)}"
+                    : !report.Ready
+                        ? $"sync gave up waiting: {readyPlayers.Length} with a live pipe ({ready}); "
+                          + $"last positions seen: {PlayerSync.Describe(observed)}"
+                        : $"sync: {readyPlayers.Length} with a live pipe ({ready}); "
+                          + $"paused {report.Paused}, seeked {report.Seeked}, "
+                          + $"resumed {report.Resumed}, retried {report.Retried}; "
+                          + $"positions when ready: {PlayerSync.Describe(observed)}";
             }
             finally
             {
