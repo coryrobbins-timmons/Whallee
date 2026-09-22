@@ -36,12 +36,12 @@ older items follow.
   the wallpaper on a configurable interval, with a filter over which genres take part and any
   combination selectable (just Cars, or Cars + Dystopia, or everything). Genres already exist and
   are stored in `sources.json`, so the filter has something to read.
-- **A second copy exits silently.** Launching Whallee while it is already running logs
+- ~~**A second copy exits silently.** Launching Whallee while it is already running logs
   `another copy is already running — exiting` and dies with no window, no message, and no focus
   handed to the copy that is running. On 2026-09-16 the owner clicked the shortcut **nine times in
   33 seconds** and got nothing back, having believed a tray Exit had taken when it had not. The
   normal behaviour for a single-instance tray app is for the second copy to surface the first one
-  and then exit. Cheap, and it has already cost real time.
+  and then exit. Cheap, and it has already cost real time.~~ **Shipped 2026-09-22** — a second copy now signals a named event (`Whallee.ShowRequest`) and the running copy surfaces its window.
 - **A button to update yt-dlp.** Owner's request, 2026-09-16, and safer than first judged: Whallee
   would launch `winget` rather than rewrite the binary itself, and a manual run needed no elevation.
   **Blocked on one real question, not on code:** winget's catalogue lags yt-dlp's own releases, so
@@ -49,6 +49,19 @@ older items follow.
   available" — a button that visibly does nothing is worse than no button. Note also that `winget`
   returns **exit code 43**, not 0, for "no applicable upgrade"; treating non-zero as failure would
   report an error on the common path.
+- **Reduce `PlayerSettle.RenderGrace`.** It is a 200 ms guess covering "the pipe is up but no frame
+  is drawn yet". Readiness is now measured directly over IPC, so the grace may be shrinkable or
+  removable, which would recover latency on every pass. Untried, and it guards the
+  wallpaper-flash defect, so it must be changed on its own and judged by looking at the screen.
+- **Settle whether `Shell_NotifyIcon` works from the Dispatcher thread.** `TrayIcon.Notify` (added
+  2026-09-22) calls it without marshalling, following the same rule as
+  `RestoreAfterExplorerRestart`: calls touching the tray icon run on the thread owning its window,
+  while callbacks touching WPF objects marshal. But the file contains statements pointing both
+  ways — `_icon.Create()` runs on the UI thread in the constructor, yet the remarks say
+  H.NotifyIcon raises events on "its own message-window thread". A reviewer found no
+  dedicated-thread tokens in the H.NotifyIcon assembly, which is suggestive but not conclusive.
+  The code fails harmlessly either way (a missing notification, never a crash). If notifications
+  do not appear, this is the first thing to check.
 
 The older items, in the order they were last judged worth doing:
 
@@ -390,25 +403,20 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   Give them **short** commands, **one at a time**. `$env:OneDrive` =
   `C:\Users\cory.robbins\OneDrive - Timmons Group Inc` and halves a `cd`. Running the built exe
   directly beats `dotnet run` — no `--project` path and no `--` separator to mangle.
-- **The players are launched staggered and are aligned once, by a seek, before the reveal.**
-  `BuildPlayers` starts three mpv processes back to back — `launchMpv 940` in a real profile,
-  roughly 300 ms apart each — and each then loops on its own clock, so the starting offset is
-  permanent. The `sync` step seeks every surviving player to zero between `VerifyPlayersStarted`
-  and `RevealPlayers`, at **both** reveal call sites. **Before the reveal is load-bearing**: the
-  rewind is up to ~600 ms of video jumping backwards and the host windows are still hidden, so
-  nobody sees it. **This is not a drift fix** — once two mpv instances are in step they stay in
-  step, and adding a timer or a periodic re-sync would be solving a problem that does not exist.
-  - **Pipes are filtered at send time, not trusted from settle.** `AlignPlayers` sends only to
-    players whose `MpvHost.IsIpcPipeUp` is true right then. The settle step (`PlayerSettle.Decide`)
-    does **not** guarantee every survivor's pipe is up by the time `sync` runs: its `PlayerDied` exit
-    fires before `allPipesUp` is even consulted, and its `TimedOut` exit means the cap was reached
-    with `allPipesUp` still false. Either one can hand `AlignPlayers` a player whose pipe was never
-    confirmed, so it re-checks rather than assuming.
-  - **The wait is cancellable, and that is what keeps the 300 ms cap safe.** `PlayerSync.Timeout`
-    (300 ms) is deliberately *below* `MpvIpc.ConnectTimeoutMs` (500 ms): `PlayerSync.AlignAsync` sends
-    sequentially and takes a `CancellationToken` that `AlignPlayers` cancels the instant its wait loop
-    exits. Without that, a single pipe that never comes up would let the pass thread give up at
-    300 ms while the background task kept retrying for up to another 500 ms per remaining pipe — and
-    the later players' seeks would land after `RevealPlayers` had already shown the wallpaper, a
-    visible rewind rather than a missed alignment. Do not raise `PlayerSync.Timeout` above
-    `MpvIpc.ConnectTimeoutMs` as a fix for anything; the cancellation is the fix, not the margin.
+- **The players are aligned by pausing them, seeking to zero and resuming together — once they are
+  all actually playing.** The offset between displays is in *when playback starts*, never in
+  playback position. Measured 2026-09-21: at the moment the players were seeked their positions were
+  `0.23 / 0.00 / 0.00`, and twice `0.17 / - / 0.00`, where a dash means that player reported no
+  position because it had not begun. **Seeking them all to zero was a no-op**, which is why every
+  delivery diagnostic came back clean while nothing improved. `launchMpv` in the pass profile
+  measures three `Process.Start` calls, not time-to-first-frame, and `settle` waits for mpv's IPC
+  pipe, which opens early in its init — so the stagger is born *after* the old sync step ran.
+  **Do not reinstate a seek-only alignment**, and do not raise `PlayerSettle.RenderGrace` (200 ms)
+  as a substitute: it is the guess that hid this, and a bigger guess only moves the failure.
+  Reducing it is now an open opportunity, since readiness is measured properly.
+- **The pause is applied over IPC, never as `--pause` on mpv's command line.** A player launched
+  paused can only be freed over IPC, and this repo already records mpv's pipe bind failing silently
+  (see `WallpaperEngine.PipeNameFor`) — that display would be stuck on frame 0 forever. Pausing
+  after the fact means **we only ever pause a player we have just proven we can reach**; anything
+  unreachable keeps playing, which is the pre-existing behaviour. A player that has been paused is
+  resumed on every exit path including exceptions, and resuming is idempotent.
