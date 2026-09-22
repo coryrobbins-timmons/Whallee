@@ -25,37 +25,57 @@ public class PlayerSyncTests
         Assert.Equal("-", PlayerSync.Describe(Array.Empty<double?>()));
 
     /// <summary>
-    /// A single display cannot be out of step with anything, and zero players is nothing to do.
-    /// Sending a seek in either case would rewind a wallpaper for no reason at all.
-    /// </summary>
-    [Theory]
-    [InlineData(0, false)]
-    [InlineData(1, false)]
-    [InlineData(2, true)]
-    [InlineData(3, true)]
-    public void AlignsOnlyWhenThereIsSomethingToAlignWith(int playerCount, bool expected)
-    {
-        Assert.Equal(expected, PlayerSync.ShouldAlign(playerCount));
-    }
-
-    /// <summary>
-    /// The relation that actually governs behaviour is PlayerSync.Timeout against
-    /// MpvIpc.ConnectTimeoutMs, not against PollInterval (300 &gt; 15 can never break; there is no
-    /// path that would make the poll interval approach the cap).
-    ///
-    /// Timeout must stay BELOW ConnectTimeoutMs, and that is deliberate, not merely a wide margin:
-    /// AlignPlayers gives up waiting at Timeout, cancelling PlayerSync.AlignAsync's remaining sends,
-    /// while a pipe connect already in flight can still take up to ConnectTimeoutMs to fail on its
-    /// own. Cancellation is what makes that gap safe - it stops every send AFTER the one that is
-    /// stuck, so the abandoned connect's eventual failure (up to 200 ms after the pass thread moved
-    /// on, at today's values) can never trigger a later seek against a wallpaper that has already
-    /// been revealed. Without cancellation, staying below ConnectTimeoutMs would be exactly backwards
-    /// - the smaller cap would just mean giving up on the wait sooner while the background work kept
-    /// running regardless. See PlayerSync.Timeout's own remarks for the full scenario.
+    /// THE CONDITION THE 2026-09-21 MEASUREMENTS PROVED ABSENT. The log recorded positions of
+    /// "0.23 / 0.00 / 0.00" and twice "0.17 / - / 0.00" at the moment the players were seeked: a
+    /// dash means that player reported no position at all, because it had not begun playing. A
+    /// player with no position is not ready, and seeking it achieves nothing.
     /// </summary>
     [Fact]
-    public void TheTimeoutIsBelowTheConnectTimeout()
-    {
-        Assert.True(PlayerSync.Timeout < TimeSpan.FromMilliseconds(MpvIpc.ConnectTimeoutMs));
-    }
+    public void EveryPlayerReportingAPositionIsReady() =>
+        Assert.True(PlayerSync.AllPlaying(new double?[] { 0.23, 0.01, 0.40 }));
+
+    [Fact]
+    public void APlayerWithNoPositionIsNotReady() =>
+        Assert.False(PlayerSync.AllPlaying(new double?[] { 0.23, null, 0.40 }));
+
+    /// <summary>
+    /// Zero is a real position - a player sitting exactly at the start - and it is what a player
+    /// reports in the instant after it begins. Treating it as "not playing" would stall the wait
+    /// against a player that is fine.
+    /// </summary>
+    [Fact]
+    public void APositionOfZeroCountsAsPlaying() =>
+        Assert.True(PlayerSync.AllPlaying(new double?[] { 0.0, 0.0, 0.0 }));
+
+    /// <summary>
+    /// Nothing to wait for. Returning false here would spin the wait loop to its cap for no reason
+    /// on a machine with no working players.
+    /// </summary>
+    [Fact]
+    public void AnEmptySetIsReady() =>
+        Assert.True(PlayerSync.AllPlaying(Array.Empty<double?>()));
+
+    /// <summary>
+    /// AFTER A RESUME, a player that is running has moved off zero. One still reporting 0.00 - or
+    /// reporting nothing - did not take the resume, and is the frozen-display case this whole
+    /// design has to earn its way past. It gets one more attempt.
+    /// </summary>
+    [Fact]
+    public void NamesThePlayersThatDidNotResume() =>
+        Assert.Equal(new[] { 1, 2 },
+            PlayerSync.StalledIndexes(new double?[] { 0.12, 0.0, null }));
+
+    [Fact]
+    public void NamesNobodyWhenEveryPlayerIsRunning() =>
+        Assert.Empty(PlayerSync.StalledIndexes(new double?[] { 0.12, 0.08, 0.20 }));
+
+    /// <summary>
+    /// The read timeout must stay well under the wait cap. That relationship broke on 2026-09-21 -
+    /// a 400 ms read timeout under a 300 ms cap meant ONE unanswered query consumed the entire
+    /// budget, every sync timed out, and the players stopped being aligned at all. The cap must fit
+    /// several rounds of queries plus the pause/seek/resume burst.
+    /// </summary>
+    [Fact]
+    public void TheWaitCapFitsSeveralRoundsOfQueries() =>
+        Assert.True(PlayerSync.Timeout > TimeSpan.FromMilliseconds(MpvIpc.ReadTimeoutMs * 3));
 }

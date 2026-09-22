@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 
 namespace Whallee.Core.Playback;
 
@@ -26,29 +27,64 @@ public static class PlayerSync
     public static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(15);
 
     /// <summary>
-    /// The cap on that wait. Timing out is NOT an error: it means the wallpaper appears with the
-    /// players possibly unaligned, which is what happened before this class existed.
+    /// The cap on how long the pass will wait for the players to start playing.
     /// </summary>
     /// <remarks>
-    /// DELIBERATELY BELOW <see cref="MpvIpc.ConnectTimeoutMs"/> (500 ms), not above it. Raising this
-    /// past 500 ms would let every pass wait a full extra 200 ms for the wallpaper to appear, just
-    /// to accommodate the rare pipe that never comes up - a bad trade for something that already
-    /// degrades safely.
+    /// 1000 ms, and reasoned rather than picked. One round of three time-pos queries costs about
+    /// 120 ms; the pause/seek/resume burst plus verification costs roughly another 250 ms. The cap
+    /// has to be comfortably larger than those to be a ceiling rather than the common path - the
+    /// old 300 ms value was smaller than the work itself, which is why every sync timed out on
+    /// 2026-09-21. The loop exits the moment the players are ready, so a healthy pass does not pay
+    /// this.
     ///
-    /// What makes staying below it safe rather than merely faster is cancellation:
-    /// <see cref="AlignAsync"/> takes a <see cref="CancellationToken"/> and
-    /// WallpaperEngine.AlignPlayers cancels it the moment this cap elapses, which stops every send
-    /// AFTER whichever one is currently blocked inside <see cref="MpvIpc.Send"/>'s named-pipe
-    /// connect. Without that cancellation, a single slow pipe would let the pass thread give up here
-    /// at 300 ms while the background task kept running for up to another
-    /// <see cref="MpvIpc.ConnectTimeoutMs"/> per remaining pipe - and land seeks against a wallpaper
-    /// that had already been revealed. That was worse than the bug this class exists to fix: a
-    /// silent constant offset became a visible multi-display rewind.
+    /// THE PREVIOUS INVARIANT HERE NO LONGER APPLIES. This value used to be deliberately BELOW
+    /// MpvIpc.ConnectTimeoutMs so that abandoning the wait could cancel seeks before they landed
+    /// after the reveal. That was correct for a step that only seeked. It is wrong for a step that
+    /// pauses: cancelling between a pause and its resume is exactly how a display gets frozen. The
+    /// cancellable part is now only the WAIT; see AlignAsync.
     /// </remarks>
-    public static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(300);
+    public static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(1000);
 
     /// <summary>Whether a set of this size is worth aligning at all.</summary>
     public static bool ShouldAlign(int playerCount) => playerCount >= 2;
+
+    /// <summary>Whether every player has reported a playback position.</summary>
+    /// <remarks>
+    /// THIS IS THE CONDITION THAT WAS MISSING, and the whole reason the previous mechanism achieved
+    /// nothing. Measured on 2026-09-21: at the moment the players were seeked their positions were
+    /// "0.23 / 0.00 / 0.00", and twice "0.17 / - / 0.00" - a dash being a player that answered
+    /// nothing because it had not begun playing. They were not apart in POSITION, so seeking them
+    /// all to zero was a no-op; they were apart in WHEN THEY START, which happens after the pass's
+    /// sync step used to run.
+    ///
+    /// Zero counts as playing. It is a real position, and it is what a player reports in the instant
+    /// after it starts; treating it as "not yet" would stall the wait against a healthy player.
+    ///
+    /// An empty set is ready. There is nothing to wait for, and returning false would spin the
+    /// caller's loop to its cap for no reason.
+    /// </remarks>
+    public static bool AllPlaying(IReadOnlyList<double?> positions) =>
+        positions.All(p => p is not null);
+
+    /// <summary>
+    /// Which players did not take their resume, by index into the set that was paused.
+    /// </summary>
+    /// <remarks>
+    /// A RUNNING PLAYER HAS MOVED OFF ZERO. One still reporting exactly 0.00, or reporting nothing
+    /// at all, did not resume - and a player left paused is a display frozen on a single frame
+    /// indefinitely, which is the worst outcome this design can produce. Those get one more attempt.
+    ///
+    /// Note the asymmetry with AllPlaying, which treats zero as fine: there, zero means "has
+    /// started"; here, after a seek to zero and a resume, zero means "has not moved".
+    /// </remarks>
+    public static IReadOnlyList<int> StalledIndexes(IReadOnlyList<double?> positions)
+    {
+        var stalled = new List<int>();
+        for (var i = 0; i < positions.Count; i++)
+            if (positions[i] is not { } seconds || seconds <= 0) stalled.Add(i);
+
+        return stalled;
+    }
 
     /// <summary>
     /// Seeks every player to the start. Never throws.
