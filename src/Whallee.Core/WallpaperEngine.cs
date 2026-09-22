@@ -619,9 +619,8 @@ public sealed class WallpaperEngine : IDisposable
             // rather than assuming the wait already proved it.
             var readyPlayers = _active.Where(a => a.Player.IsIpcPipeUp).ToArray();
 
-            // Named in LAUNCH order, which is the order they are seeked in, so the log shows which
-            // display was last to start - the one most likely not to be rendering yet when its seek
-            // arrives. See LastSyncDetail.
+            // Named in LAUNCH order, which is how _active lists them, so the log names displays in
+            // a consistent, predictable order run to run. See LastSyncDetail.
             var ready = string.Join(", ", readyPlayers.Select(a => a.Display.DeviceName));
 
             // NO "FEWER THAN TWO, SKIP" SHORTCUT ANY MORE. It was a correct optimisation while this
@@ -634,23 +633,23 @@ public sealed class WallpaperEngine : IDisposable
                 return;
             }
 
-            // _active - and therefore readyPlayers, which preserves its order - is in LAUNCH order.
-            // Sending in that order means the player that has been running longest (and so has drifted
-            // furthest from zero) is seeked first, which only ever narrows the spread between players
-            // as the loop proceeds. Aligning a subset in some other order has no such guarantee - it
-            // could easily seek the newest player first and leave the oldest one running, which widens
-            // the spread instead of closing it.
+            // _active - and therefore readyPlayers - is in LAUNCH order. All players are paused
+            // before any of them is seeked now, so seek order no longer affects the spread between
+            // players; this ordering is kept only because it is what _active already gives us, not
+            // because anything downstream depends on it.
             var pipeNames = readyPlayers.Select(a => a.Player.PipeName).ToArray();
 
             // Cancelled unconditionally in the finally below, whether the wait loop exits because the
-            // work finished or because the cap elapsed. AlignAsync only checks this BETWEEN sends -
-            // MpvIpc.Send's blocking pipe connect cannot be interrupted mid-flight - so this cannot
-            // speed up whichever send is currently stuck. What it stops is every send AFTER that one:
-            // without it, a pipe that never comes up lets the pass thread give up here at
-            // PlayerSync.Timeout (300 ms) while the background task keeps going for up to another
-            // MpvIpc.ConnectTimeoutMs (500 ms), and the remaining players' seeks would land against a
-            // wallpaper that RevealPlayers had already shown - a visible rewind, not just a missed
-            // alignment. See the remarks on PlayerSync.Timeout for the full scenario this closes.
+            // work finished or because the cap elapsed. This ends AlignAsync's WAIT (Phase 1) and, if
+            // the cap elapses before or right at the wait finishing, stops the pause/seek/resume burst
+            // from starting at all - see the cancellation check AlignAsync makes immediately before
+            // Phase 2. It does NOT reach any further than that: once a player has actually been
+            // paused, AlignAsync no longer consults this token at all, and nothing here can stop or
+            // speed up the seek/resume that follows. Do not read this as "the burst is bounded by
+            // Timeout" - it is not, and shortening PlayerSync.Timeout on that assumption is exactly
+            // the mistake that produced the all-timeouts regression on 2026-09-21. If this token is
+            // cancelled after Phase 2 has begun, the burst still runs to completion, and the finally
+            // in AlignAsync still resumes everything that was paused.
             using var cts = new CancellationTokenSource();
             try
             {

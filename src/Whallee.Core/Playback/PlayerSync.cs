@@ -128,6 +128,18 @@ public static class PlayerSync
 
             if (!ready) return new ReleaseReport(false, 0, 0, 0, 0);
 
+            // ONE LAST CANCELLATION CHECK, RIGHT HERE, AND NOWHERE FURTHER IN. This is the last
+            // moment at which giving up is free: nothing has been paused yet, so there is no
+            // paused player to leave stranded. The cap can elapse while Phase 1's loop is still
+            // mid-iteration, or in the gap between AllPlaying going true and this line running;
+            // without this check that race lets the pause/seek/resume burst start AFTER
+            // AlignPlayers has already given up and RevealPlayers has shown the windows, so the
+            // user would see the displays freeze, jump to zero and restart in full view. Once
+            // Phase 2 begins below, cancellation is deliberately no longer observed - see the
+            // remarks on this method and on WallpaperEngine.AlignPlayers's CancellationTokenSource
+            // for why that boundary is correct.
+            if (cancellationToken.IsCancellationRequested) return new ReleaseReport(false, 0, 0, 0, 0);
+
             var paused = new List<string>(pipeNames.Count);
             var seeked = 0;
             var resumed = 0;
