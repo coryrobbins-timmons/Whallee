@@ -149,6 +149,17 @@ public partial class App : Application
         Shutdown();
     }
 
+    /// <summary>
+    /// Raises a Windows notification, if there is a tray icon to raise it from.
+    /// </summary>
+    /// <remarks>
+    /// Goes through App because _tray is private and the tray is created after the window: a page
+    /// cannot hold a reference to it safely. A null tray is a normal state during startup and
+    /// shutdown, not an error.
+    /// </remarks>
+    public void Notify(string title, string message, bool failed) =>
+        _tray?.Notify(title, message, failed);
+
     protected override void OnExit(ExitEventArgs e)
     {
         // Listener first: it marshals onto the Dispatcher, and letting it fire while the window and

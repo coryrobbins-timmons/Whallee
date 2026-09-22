@@ -172,6 +172,12 @@ public partial class LibraryPage : UserControl
         {
             _reporter.Report($"could not import that link: {ex.Message}");
             ShowImportResult($"Could not import that link. {ex.Message}", detail: null, isError: true);
+
+            // THE CASE THAT MATTERS MOST. A failure after a multi-minute wait is precisely when the
+            // owner is not watching, and previously it was reported only to a card in a window that
+            // may be hidden and to the log.
+            (Application.Current as App)?.Notify(
+                "Whallee — import failed", ex.Message, failed: true);
         }
     }
 
@@ -258,6 +264,19 @@ public partial class LibraryPage : UserControl
                     request.Length, request.Start,
                     outcome.ActualLength, outcome.Strategy,
                     YtDlpHealth.StaleAgeInDays());
+
+                // A WINDOWS NOTIFICATION AS WELL AS THE IN-APP CARD, at the owner's request
+                // (2026-09-22). An import runs to minutes, and the reason to want telling is that
+                // you have walked away from the machine - which is exactly when the themed card in
+                // a hidden window reaches nobody.
+                //
+                // The same wording as the card: ImportSummary is unit-tested for it, and two
+                // surfaces describing one event differently is how they drift apart.
+                (Application.Current as App)?.Notify(
+                    "Whallee", summary.Detail is { } detail
+                        ? $"{summary.Headline} {detail}"
+                        : summary.Headline,
+                    failed: false);
 
                 // APPLIED TO EVERY DISPLAY THE MOMENT IT LANDS, at the owner's request
                 // (2026-09-11). Importing a wallpaper and then having to right-click it to see it

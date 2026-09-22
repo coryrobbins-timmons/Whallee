@@ -177,6 +177,46 @@ public sealed class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>Raises a Windows notification from the tray icon.</summary>
+    /// <remarks>
+    /// DELIBERATELY NOT MARSHALLED TO THE DISPATCHER, and that is the opposite of what the
+    /// callbacks in the constructor do. This file already draws that distinction for
+    /// RestoreAfterExplorerRestart: the callbacks marshal because they touch WPF objects, while
+    /// anything touching the tray icon must run on the thread that owns its HWND, because
+    /// Shell_NotifyIcon requires it. A notification is the second kind, so hopping to the
+    /// Dispatcher would be the wrong move here, not the safe one.
+    ///
+    /// EVERYTHING IS SWALLOWED, for the same reason RestoreAfterExplorerRestart swallows: a
+    /// notification that cannot be shown must never take down an import that actually worked. The
+    /// worst case is a missing toast.
+    ///
+    /// respectQuietTime is true: an import finishing is useful, not urgent, and should not punch
+    /// through Focus Assist.
+    /// </remarks>
+    public void Notify(string title, string message, bool failed)
+    {
+        if (_disposed) return;
+
+        try
+        {
+            if (!_icon.IsCreated) return;
+
+            _icon.ShowNotification(
+                title,
+                message,
+                failed ? NotificationIcon.Error : NotificationIcon.Info,
+                customIconHandle: null,
+                largeIcon: true,
+                sound: true,
+                respectQuietTime: true,
+                realtime: false,
+                timeout: null);
+        }
+        catch (Exception)
+        {
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
