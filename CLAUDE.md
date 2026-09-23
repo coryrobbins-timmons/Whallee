@@ -26,12 +26,15 @@ Start with Windows, the app and tray icon, and pause-on-fullscreen / pause-on-ba
 standing ruling 5. Four items were raised by the owner while testing it and head this list; the
 older items follow.
 
-- ~~**Players are never synchronised across displays.**~~ **Shipped 2026-09-18** — see the
-  Environment facts entry below. The pause/seek/unpause approach originally proposed here was
-  considered and rejected: a failed unpause leaves a display frozen on one frame forever, and
-  `MpvIpc` is write-only, so that failure could never even be detected, let alone recovered from. The
-  shipped fix instead does one plain seek-to-zero per player, sent before the reveal so the rewind is
-  never seen, which sidesteps the unpause failure mode entirely.
+- ~~**Players are never synchronised across displays.**~~ **Shipped 2026-09-18, superseded
+  2026-09-22.** The first fix seeked every player to zero before the reveal. Measurement on
+  2026-09-21 disproved it: the players were already at zero (or hadn't started at all) when seeked,
+  so the seek was a no-op — the stagger was in *when playback begins*, not in position. See the
+  Environment facts entries below for both the measurement and the shipped mechanism. The
+  superseding fix, shipped 2026-09-22, is exactly the pause/seek/resume-over-IPC approach an earlier
+  version of this bullet rejected; that rejection turned on an undetectable failed unpause, which is
+  answered by `MpvIpc` gaining a read (`QueryTimePosAsync`) plus a guaranteed resume on every exit
+  path — see the Environment facts entry on the IPC pause below.
 - **Shuffle ribbon** — owner's request, 2026-09-16. A third tab beside Library and Settings: rotate
   the wallpaper on a configurable interval, with a filter over which genres take part and any
   combination selectable (just Cars, or Cars + Dystopia, or everything). Genres already exist and
@@ -419,4 +422,8 @@ Both must be clean. Safe verbs that print and exit — use these freely:
   (see `WallpaperEngine.PipeNameFor`) — that display would be stuck on frame 0 forever. Pausing
   after the fact means **we only ever pause a player we have just proven we can reach**; anything
   unreachable keeps playing, which is the pre-existing behaviour. A player that has been paused is
-  resumed on every exit path including exceptions, and resuming is idempotent.
+  resumed on every exit path including exceptions, and resuming is idempotent. **The wait is
+  cancellable; the pause/seek/resume burst is not.** Cancelling the wait is free because nothing has
+  been paused yet, and there is one final cancellation check immediately before the first pause for
+  exactly that reason — but once a player has been paused, nothing cancels its resume, because that
+  is how a display gets left frozen. This is why `PlayerSync.Timeout` must not be shortened casually.
