@@ -11,6 +11,7 @@ public partial class App : Application
     private PlaybackGovernor? _governor;
     private EventWaitHandle? _showRequest;
     private CancellationTokenSource? _showListener;
+    private Thread? _showListenerThread;
 
     /// <summary>
     /// The event a second copy signals to ask the running copy to show itself.
@@ -88,6 +89,13 @@ public partial class App : Application
         // nothing from the UI - it only reads config and the engine's player list.
         _governor = new PlaybackGovernor(Engine, Reporter);
 
+        // See EngineHost.AlignPassCompleted's remarks and PlaybackGovernor.ForceReassertNextTick's:
+        // PlayerSync.AlignAsync resumes every player it touches unconditionally, including ones the
+        // governor paused, so the governor must be told to re-check itself after every pass or a
+        // pause it applied can be silently undone. This subscription is the only place either side
+        // needs to know about the other; Whallee.Core still knows nothing of PlaybackGovernor.
+        Engine.AlignPassCompleted += _governor.ForceReassertNextTick;
+
         var window = new MainWindow();
         MainWindow = window;
         window.Show();
@@ -124,15 +132,35 @@ public partial class App : Application
         // WaitOne blocks outright; doing that on the Dispatcher thread would freeze the desktop,
         // since that thread owns windows re-parented into Explorer's desktop. The callback is
         // marshalled back with BeginInvoke, which does not block this thread either.
+        //
+        // THE WHOLE BODY IS WRAPPED IN TRY/CATCH, and this is defense in depth rather than the
+        // primary fix. OnExit joins this thread (see below) before disposing _showRequest, which is
+        // what should normally prevent the race outright - but a join with a bounded timeout is not
+        // a guarantee, and Dispatcher.BeginInvoke after the Dispatcher itself has begun shutting
+        // down can throw an InvalidOperationException that joining alone cannot rule out (shutdown
+        // order is Dispatcher-driven, not something this thread controls). Without this catch,
+        // either exception - ObjectDisposedException from a WaitOne on a disposed handle, or the
+        // Dispatcher case - would escape unhandled on a background thread and crash the whole
+        // process on the way out, which is a strictly worse outcome than a missed show request
+        // during shutdown.
         var listener = new Thread(() =>
         {
-            while (!stop.IsCancellationRequested)
+            try
             {
-                // Bounded, so shutdown does not depend on the event ever being signalled.
-                if (!handle.WaitOne(TimeSpan.FromMilliseconds(500))) continue;
-                if (stop.IsCancellationRequested) return;
+                while (!stop.IsCancellationRequested)
+                {
+                    // Bounded, so shutdown does not depend on the event ever being signalled.
+                    if (!handle.WaitOne(TimeSpan.FromMilliseconds(500))) continue;
+                    if (stop.IsCancellationRequested) return;
 
-                Dispatcher.BeginInvoke(show);
+                    Dispatcher.BeginInvoke(show);
+                }
+            }
+            catch (Exception)
+            {
+                // Swallowed. This thread's only job past this point is to end quietly - the app is
+                // exiting either way, and a show request lost in the last half-second of shutdown is
+                // never worse than a process crash.
             }
         })
         {
@@ -140,6 +168,7 @@ public partial class App : Application
             Name = "Whallee.ShowRequestListener"
         };
         listener.Start();
+        _showListenerThread = listener;
     }
 
     /// <summary>The only way out of the app, since closing the window merely hides it.</summary>
@@ -164,7 +193,19 @@ public partial class App : Application
     {
         // Listener first: it marshals onto the Dispatcher, and letting it fire while the window and
         // tray are being disposed invites a show request into a half-torn-down app.
+        //
+        // JOINED BEFORE _showRequest IS DISPOSED, AND THAT ORDER IS THE FIX. The listener thread's
+        // loop checks stop.IsCancellationRequested and then calls handle.WaitOne - and Cancel() alone
+        // only sets the flag the loop checks BETWEEN those two steps. Without joining, a thread that
+        // has just passed the check can still be about to call WaitOne on _showRequest the instant
+        // after this method disposes it, which throws an unhandled ObjectDisposedException on a
+        // background thread and takes the whole process down with it. A short, bounded join gives the
+        // thread its one remaining WaitOne timeout (500 ms) to notice the cancellation and return
+        // before the handle underneath it goes away; the listener's own try/catch is the second layer
+        // for whatever this bound does not catch (see the thread's remarks at OnStartup).
         _showListener?.Cancel();
+        _showListenerThread?.Join(TimeSpan.FromSeconds(2));
+        _showListenerThread = null;
         _showListener?.Dispose();
         _showListener = null;
         _showRequest?.Dispose();
@@ -173,6 +214,11 @@ public partial class App : Application
         // Tray first: it owns a message window, and leaving a live icon behind while the engine
         // tears down invites a menu click into a half-disposed app.
         _tray?.Dispose();
+
+        // Unsubscribed before either side is disposed - a defunct governor has no business being
+        // told to re-check itself, and there is no pass left to complete once teardown has started.
+        if (_governor is not null && Engine is not null)
+            Engine.AlignPassCompleted -= _governor.ForceReassertNextTick;
 
         // Governor before the engine. It ticks every second and reaches into the engine's player
         // list; leaving it running while the engine tears down invites a tick against players that

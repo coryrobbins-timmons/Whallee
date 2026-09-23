@@ -179,12 +179,18 @@ public sealed class TrayIcon : IDisposable
 
     /// <summary>Raises a Windows notification from the tray icon.</summary>
     /// <remarks>
-    /// DELIBERATELY NOT MARSHALLED TO THE DISPATCHER, and that is the opposite of what the
-    /// callbacks in the constructor do. This file already draws that distinction for
-    /// RestoreAfterExplorerRestart: the callbacks marshal because they touch WPF objects, while
-    /// anything touching the tray icon must run on the thread that owns its HWND, because
-    /// Shell_NotifyIcon requires it. A notification is the second kind, so hopping to the
-    /// Dispatcher would be the wrong move here, not the safe one.
+    /// CALLED DIRECTLY FROM WHATEVER THREAD INVOKES IT, WITHOUT A DISPATCHER HOP - AND THAT IS FINE,
+    /// BUT NOT FOR THE REASON THIS REMARK USED TO GIVE. Established by reflection over
+    /// H.NotifyIcon 2.3.0 on 2026-09-23: Shell_NotifyIcon itself has NO thread affinity. It hands the
+    /// icon data to the shell, which posts callback messages (mouse events, TaskbarCreated) to
+    /// whatever HWND owns them - and that HWND belongs to H.NotifyIcon's own internal pump thread
+    /// (it has a private Thread field, a ThreadId, and P/Invokes to GetMessage/TranslateMessage/
+    /// DispatchMessage/PostThreadMessage), not to whoever calls Shell_NotifyIcon. That is exactly why
+    /// the constructor's callbacks above are correct to say events arrive off the Dispatcher thread -
+    /// that half of this file's reasoning stands. But it means CALLING Shell_NotifyIcon carries no
+    /// thread requirement at all: doing it from the Dispatcher thread, as Notify does, is legal and
+    /// works, which is why this has always worked despite HWND ownership living elsewhere. No thread
+    /// hop is needed before calling it, here or in RestoreAfterExplorerRestart.
     ///
     /// EVERYTHING IS SWALLOWED, for the same reason RestoreAfterExplorerRestart swallows: a
     /// notification that cannot be shown must never take down an import that actually worked. The

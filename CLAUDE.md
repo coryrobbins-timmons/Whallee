@@ -56,15 +56,17 @@ older items follow.
   is drawn yet". Readiness is now measured directly over IPC, so the grace may be shrinkable or
   removable, which would recover latency on every pass. Untried, and it guards the
   wallpaper-flash defect, so it must be changed on its own and judged by looking at the screen.
-- **Settle whether `Shell_NotifyIcon` works from the Dispatcher thread.** `TrayIcon.Notify` (added
-  2026-09-22) calls it without marshalling, following the same rule as
-  `RestoreAfterExplorerRestart`: calls touching the tray icon run on the thread owning its window,
-  while callbacks touching WPF objects marshal. But the file contains statements pointing both
-  ways — `_icon.Create()` runs on the UI thread in the constructor, yet the remarks say
-  H.NotifyIcon raises events on "its own message-window thread". A reviewer found no
-  dedicated-thread tokens in the H.NotifyIcon assembly, which is suggestive but not conclusive.
-  The code fails harmlessly either way (a missing notification, never a crash). If notifications
-  do not appear, this is the first thing to check.
+- ~~**Settle whether `Shell_NotifyIcon` works from the Dispatcher thread.**~~ **Settled 2026-09-23.**
+  `TrayIcon.Notify` calls it without marshalling, and that is fine, but not for the reason this
+  bullet originally gave. Reflection over H.NotifyIcon 2.3.0 confirmed it runs its own internal pump
+  thread (a private `Thread` field, a `ThreadId`, and P/Invokes to
+  `GetMessage`/`TranslateMessage`/`DispatchMessage`/`PostThreadMessage`) — so the constructor's
+  remarks about callbacks arriving off the Dispatcher thread were correct all along. What was wrong
+  was the assumption that *calling* `Shell_NotifyIcon` inherits that same thread affinity:
+  `Shell_NotifyIcon` itself has NO thread affinity — it hands data to the shell, which posts
+  callback messages to the owning HWND — so calling it from the Dispatcher thread, as `Notify`
+  does, is legal and works despite HWND ownership living on H.NotifyIcon's own pump thread. See
+  `TrayIcon.Notify`'s remarks for the full account.
 
 The older items, in the order they were last judged worth doing:
 

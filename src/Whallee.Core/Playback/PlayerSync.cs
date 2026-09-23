@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 
@@ -27,15 +28,24 @@ public static class PlayerSync
     public static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(15);
 
     /// <summary>
-    /// The cap on how long the pass will wait for the players to start playing.
+    /// The cap on how long Phase 1 of <see cref="AlignAsync"/> will wait for the players to start
+    /// playing, enforced by AlignAsync itself.
     /// </summary>
     /// <remarks>
     /// 1000 ms, and reasoned rather than picked. One round of three time-pos queries costs about
-    /// 120 ms; the pause/seek/resume burst plus verification costs roughly another 250 ms. The cap
-    /// has to be comfortably larger than those to be a ceiling rather than the common path - the
-    /// old 300 ms value was smaller than the work itself, which is why every sync timed out on
-    /// 2026-09-21. The loop exits the moment the players are ready, so a healthy pass does not pay
-    /// this.
+    /// 120 ms, so this cap is comfortably larger than several rounds of that to be a ceiling rather
+    /// than the common path - the old 300 ms value was smaller than a single round, which is why
+    /// every sync timed out on 2026-09-21. The loop exits the moment the players are ready, so a
+    /// healthy pass does not pay this.
+    ///
+    /// COVERS PHASE 1 ONLY, AND ENFORCED FROM INSIDE AlignAsync, NOT MERELY BY THE CALLER GIVING UP.
+    /// It used to rely entirely on WallpaperEngine.AlignPlayers abandoning its own wait at this same
+    /// value, which left two problems: nothing stopped Phase 1's loop from running past this cap on
+    /// its own if the caller's wait were ever changed independently, and - the one that actually
+    /// bit, see BurstAllowance below - the pause/seek/resume/verify burst that follows Phase 1 had no
+    /// budget of its own at all, so a Phase 1 that finished late could still be mid-burst when the
+    /// caller's identical cap elapsed. AlignAsync now bounds its own wait to this value; the caller
+    /// waits this value PLUS BurstAllowance, so the burst always has room to finish before the reveal.
     ///
     /// THE PREVIOUS INVARIANT HERE NO LONGER APPLIES. This value used to be deliberately BELOW
     /// MpvIpc.ConnectTimeoutMs so that abandoning the wait could cancel seeks before they landed
@@ -44,6 +54,32 @@ public static class PlayerSync
     /// cancellable part is now only the WAIT; see AlignAsync.
     /// </remarks>
     public static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(1000);
+
+    /// <summary>
+    /// How much EXTRA time the caller should allow, beyond <see cref="Timeout"/>, for the
+    /// pause/seek/resume/verify burst (Phases 2-5) to finish before it gives up and reveals anyway.
+    /// </summary>
+    /// <remarks>
+    /// DERIVED THE SAME WAY Timeout IS: reasoned with headroom, not measured to the millisecond. The
+    /// burst is three rounds of MpvIpc.Send (pause, seek, resume) plus one verification round that is
+    /// a QUERY rather than a send, and so carries MpvIpc.ReadTimeoutMs's cost rather than
+    /// MpvIpc.ConnectTimeoutMs's; a stalled player can also earn one more resume attempt on top of
+    /// that. Budgeting three query-sized rounds (3 * MpvIpc.ReadTimeoutMs) covers the verification
+    /// round with headroom to spare for that retry, and three send-sized rounds
+    /// (3 * MpvIpc.ConnectTimeoutMs) covers pause/seek/resume even in the worst case of a player that
+    /// has just become unreachable and makes each Send wait out its full connect timeout. A real
+    /// burst has measured at roughly 250 ms; this constant is comfortably above that on purpose, the
+    /// same way Timeout is comfortably above a healthy Phase 1.
+    ///
+    /// WHY THIS MUST BE ADDED TO Timeout, NOT USED IN ITS PLACE. Phase 1 and the burst are sequential,
+    /// not overlapping - the burst only starts once Phase 1 has succeeded - so the caller's total
+    /// wait has to cover both in full. A cap that only covered Timeout let the caller abandon at
+    /// exactly the moment a late-but-successful Phase 1 handed off to the burst, which then ran in
+    /// full view after RevealPlayers had already shown the windows - a visible freeze/jump, and
+    /// exactly what this constant exists to stop.
+    /// </remarks>
+    public static readonly TimeSpan BurstAllowance = TimeSpan.FromMilliseconds(
+        3 * MpvIpc.ReadTimeoutMs + 3 * MpvIpc.ConnectTimeoutMs);
 
     /// <summary>Whether every player has reported a playback position.</summary>
     /// <remarks>
@@ -110,9 +146,17 @@ public static class PlayerSync
         IReadOnlyList<string> pipeNames, double?[] observed, CancellationToken cancellationToken) =>
         Task.Run(async () =>
         {
-            // PHASE 1 - WAIT UNTIL EVERY PLAYER IS PLAYING. Cancellable.
+            // PHASE 1 - WAIT UNTIL EVERY PLAYER IS PLAYING. Cancellable, AND now bounded by Timeout
+            // ON ITS OWN, rather than trusting the caller to enforce that externally. Previously this
+            // loop had no cap of its own at all - it ran until either AllPlaying went true or the
+            // caller's cancellationToken fired, and WallpaperEngine.AlignPlayers was the only thing
+            // that ever set that cap, at exactly Timeout. That worked by coincidence, not by design:
+            // this method should not rely entirely on caller cancellation to stop wasted work once
+            // its own budget is spent, and a future caller that waited longer (as this one now does,
+            // by BurstAllowance - see Timeout's remarks) would otherwise let Phase 1 run unbounded.
             var ready = false;
-            while (!cancellationToken.IsCancellationRequested)
+            var waitClock = Stopwatch.StartNew();
+            while (!cancellationToken.IsCancellationRequested && waitClock.Elapsed < Timeout)
             {
                 for (var i = 0; i < pipeNames.Count && i < observed.Length; i++)
                     observed[i] = await MpvIpc.QueryTimePosAsync(pipeNames[i], cancellationToken)

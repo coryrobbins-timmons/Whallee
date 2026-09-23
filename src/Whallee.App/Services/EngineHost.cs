@@ -33,6 +33,35 @@ public sealed class EngineHost : IDisposable
 
     public WhalleeConfig Config { get; }
 
+    /// <summary>
+    /// Raised after every pass that may have run <c>PlayerSync.AlignAsync</c> - <see cref="Start"/>,
+    /// <see cref="Restart"/> and <see cref="ApplyConfigChange"/> all end by calling
+    /// <see cref="ReportOutcome"/>, which is where this fires, whether or not that particular pass
+    /// actually had anything to align.
+    /// </summary>
+    /// <remarks>
+    /// WHY THIS EXISTS. <c>WallpaperEngine.AlignPlayers</c> calls <c>PlayerSync.AlignAsync</c>, which
+    /// resumes every player it aligns UNCONDITIONALLY - even one that <c>PlaybackGovernor</c> had
+    /// paused for fullscreen or battery. That resume-always behaviour is a confirmed-sound safety
+    /// property (see <c>PlayerSync</c>'s remarks on why a stranded pause is worse than a resume that
+    /// was not strictly needed) and must not change. But it means an align pass can silently undo a
+    /// pause the governor believes is still in force, and the governor's own act-only-on-transition
+    /// logic then never notices: from its point of view neither the verdict nor the player SET
+    /// changed, so its next tick does nothing and the players run indefinitely behind whatever should
+    /// have kept them paused.
+    ///
+    /// THIS EVENT IS THE SEAM THAT FIXES THAT WITHOUT COUPLING LAYERS WRONGLY. Whallee.Core must
+    /// never reference PlaybackGovernor - it is an App-layer concept - so WallpaperEngine cannot call
+    /// it directly, and must not be made to. EngineHost already sits at the one App-layer chokepoint
+    /// every caller of Start/Restart/ApplyConfigChange passes through (see the grep that found no
+    /// other caller), so it is the natural place to say "a pass just finished" and let App.xaml.cs -
+    /// which already holds both this EngineHost and the PlaybackGovernor - decide what to do about
+    /// it. Firing unconditionally, even when nothing aligned, keeps this class ignorant of whether an
+    /// alignment happened; the governor's own re-check is cheap (see its remarks), so there is no cost
+    /// to telling it more often than strictly necessary.
+    /// </remarks>
+    public event Action? AlignPassCompleted;
+
     public EngineHost(UiReporter reporter)
     {
         _reporter = reporter;
@@ -154,6 +183,9 @@ public sealed class EngineHost : IDisposable
         // sent and did nothing. See WallpaperEngine.LastSyncDetail.
         if (_engine?.LastSyncDetail is { } sync)
             _reporter.Report(sync);
+
+        // See AlignPassCompleted's remarks for why this fires here, unconditionally, on every pass.
+        AlignPassCompleted?.Invoke();
     }
 
     private void SeedDefaults()

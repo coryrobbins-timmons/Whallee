@@ -661,8 +661,17 @@ public sealed class WallpaperEngine : IDisposable
 
                 var work = PlayerSync.AlignAsync(pipeNames, observed, cts.Token);
 
+                // WAITS Timeout PLUS BurstAllowance, NOT Timeout ALONE. AlignAsync's Phase 1 now caps
+                // itself at Timeout (see its remarks), but Phases 2-5 - the pause/seek/resume/verify
+                // burst - run after that and are NOT cancellable once begun. A cap here of Timeout
+                // alone abandoned the wait at exactly the moment a late Phase 1 handed off to the
+                // burst, which then ran to completion in full view after RevealPlayers had already
+                // shown the windows: a visible freeze/jump, not merely a stale log line. Waiting the
+                // combined budget means this loop only gives up after the burst itself has had room
+                // to finish, so a completed alignment is always revealed already-aligned.
+                var cap = PlayerSync.Timeout + PlayerSync.BurstAllowance;
                 var watch = System.Diagnostics.Stopwatch.StartNew();
-                while (!work.IsCompleted && watch.Elapsed < PlayerSync.Timeout)
+                while (!work.IsCompleted && watch.Elapsed < cap)
                     MessagePump.Sleep(PlayerSync.PollInterval);
 
                 // Result is only safe to read once the task has completed - reading it earlier would
@@ -671,13 +680,25 @@ public sealed class WallpaperEngine : IDisposable
                 // know, and saying so is more useful than a number that might be a lie.
                 var report = work.IsCompletedSuccessfully ? work.Result : default;
 
+                // THREE OUTCOMES, KEPT DISTINCT ON PURPOSE. They are not the same failure read three
+                // ways: (a) "TIMED OUT" means THIS caller's own combined budget (cap, above) elapsed
+                // before AlignAsync's task ever completed - the whole align was abandoned mid-flight,
+                // Phase unknown. (b) "gave up waiting" means the task DID complete, inside that
+                // budget, but AlignAsync's own Phase 1 cap (Timeout) was reached first with players
+                // still not all playing - nothing was ever touched, so nothing needed to be undone.
+                // (c) the success line means Ready was true and the burst ran. Collapsing (a) and (b)
+                // together was the earlier defect: it made a pass that actually finished moments after
+                // this caller gave up look identical, in the log, to one that finished only because
+                // AlignAsync had already exhausted its own separate cap.
                 LastSyncDetail = !work.IsCompletedSuccessfully
-                    ? $"sync TIMED OUT after {PlayerSync.Timeout.TotalMilliseconds:F0} ms: "
-                      + $"{_active.Count} active, {readyPlayers.Length} with a live pipe ({ready}); "
+                    ? $"sync TIMED OUT after {cap.TotalMilliseconds:F0} ms (caller abandoned before "
+                      + $"AlignAsync finished): {_active.Count} active, "
+                      + $"{readyPlayers.Length} with a live pipe ({ready}); "
                       + $"last positions seen: {PlayerSync.Describe(observed)}"
                     : !report.Ready
-                        ? $"sync gave up waiting: {readyPlayers.Length} with a live pipe ({ready}); "
-                          + $"last positions seen: {PlayerSync.Describe(observed)}"
+                        ? $"sync gave up waiting after {PlayerSync.Timeout.TotalMilliseconds:F0} ms "
+                          + $"(players never became ready): {readyPlayers.Length} with a live pipe "
+                          + $"({ready}); last positions seen: {PlayerSync.Describe(observed)}"
                         : $"sync: {readyPlayers.Length} with a live pipe ({ready}); "
                           + $"paused {report.Paused}, seeked {report.Seeked}, "
                           + $"resumed {report.Resumed}, retried {report.Retried}; "

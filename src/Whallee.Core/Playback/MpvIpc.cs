@@ -28,10 +28,15 @@ public static class MpvIpc
     /// SHORT ON PURPOSE. A wedged or dying mpv must not hold up the caller, and the cost of giving
     /// up is only that the wallpaper keeps playing - which is what it was doing anyway.
     ///
-    /// PUBLIC, DELIBERATELY: this number is half of the contract that makes PlayerSync.AlignAsync's
-    /// cancellation safe rather than merely helpful. PlayerSync.Timeout (300 ms) is well BELOW this
-    /// value (500 ms) on purpose - see the remarks there - and the relationship is exercised by
-    /// PlayerSyncTests so a future change to either constant cannot silently break it.
+    /// PUBLIC, DELIBERATELY: this number feeds two other budgets that read it back. It used to be
+    /// exercised only by PlayerSync.Timeout being BELOW it, on purpose, so that abandoning a wait
+    /// could cancel a seek before it landed after the reveal - that invariant no longer applies, and
+    /// PlayerSync.Timeout (1000 ms) is now comfortably ABOVE this value, not below it, because the
+    /// step it bounds pauses rather than merely seeks (see PlayerSync.Timeout's remarks for why that
+    /// changes everything). What PlayerSyncTests actually asserts today is a different relationship:
+    /// PlayerSync.Timeout exceeds three rounds of ReadTimeoutMs, and PlayerSync.BurstAllowance is
+    /// derived from three rounds each of ReadTimeoutMs and this value - so a future change to either
+    /// constant here still cannot silently break either budget.
     /// </remarks>
     public const int ConnectTimeoutMs = 500;
 
@@ -44,12 +49,16 @@ public static class MpvIpc
     /// <remarks>
     /// MEASURED, NOT GUESSED. A headless mpv answered a time-pos query in 31 ms on 2026-09-21
     /// (connect 8 ms), so 120 ms is roughly four times the observed cost and still leaves room for
-    /// three queries inside PlayerSync.Timeout's 300 ms budget.
+    /// several queries inside PlayerSync.Timeout's 1000 ms Phase-1 budget.
     ///
-    /// THIS VALUE MUST STAY WELL UNDER PlayerSync.Timeout. It was first set to 400 ms, above that
-    /// 300 ms cap, and a single unanswered query then consumed the whole alignment budget - every
-    /// sync timed out, the players stopped being aligned at all, and the log reported no
-    /// measurements. Exactly the relationship PlayerSyncTests already guards for ConnectTimeoutMs.
+    /// THIS VALUE MUST STAY WELL UNDER PlayerSync.Timeout. It was first set to 400 ms, above the
+    /// 300 ms cap PlayerSync.Timeout used to be, and a single unanswered query then consumed the
+    /// whole alignment budget - every sync timed out, the players stopped being aligned at all, and
+    /// the log reported no measurements. PlayerSync.Timeout is now 1000 ms, so the live guard in
+    /// PlayerSyncTests is `PlayerSync.Timeout > ReadTimeoutMs * 3` - Timeout exceeding three rounds
+    /// of this value, comfortably above the single round that caused the 2026-09-21 regression. This
+    /// value also feeds PlayerSync.BurstAllowance, the separate budget for the pause/seek/resume/
+    /// verify burst that runs after Phase 1 succeeds.
     /// </remarks>
     public const int ReadTimeoutMs = 120;
 

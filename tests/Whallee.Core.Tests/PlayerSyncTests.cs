@@ -78,4 +78,16 @@ public class PlayerSyncTests
     [Fact]
     public void TheWaitCapFitsSeveralRoundsOfQueries() =>
         Assert.True(PlayerSync.Timeout > TimeSpan.FromMilliseconds(MpvIpc.ReadTimeoutMs * 3));
+
+    /// <summary>
+    /// THE 2026-09-22 REVIEW FINDING THIS ANSWERS: the burst (pause/seek/resume/verify) runs AFTER
+    /// Phase 1 succeeds, not inside it, so a caller waiting only Timeout could abandon at exactly the
+    /// moment a late Phase 1 handed off to the burst - which then ran in full view after the reveal.
+    /// BurstAllowance exists so the caller waits Timeout PLUS this, and it must itself be positive
+    /// and large enough to plausibly cover three send rounds and a query round - a zero or negative
+    /// value here would silently defeat the whole fix while every other assertion still passed.
+    /// </summary>
+    [Fact]
+    public void TheBurstAllowanceCoversSeveralRoundsOfSendsAndOneQuery() =>
+        Assert.True(PlayerSync.BurstAllowance >= TimeSpan.FromMilliseconds(MpvIpc.ReadTimeoutMs * 3));
 }

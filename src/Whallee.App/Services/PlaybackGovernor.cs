@@ -56,6 +56,7 @@ public sealed class PlaybackGovernor : IDisposable
     private string[] _appliedTo = Array.Empty<string>();
     private bool _disposed;
     private bool _ticking;
+    private bool _forceReassert;
 
     public PlaybackGovernor(EngineHost engine, UiReporter reporter)
     {
@@ -68,6 +69,31 @@ public sealed class PlaybackGovernor : IDisposable
         _timer.Tick += OnTick;
         _timer.Start();
     }
+
+    /// <summary>
+    /// Tells this governor to re-check itself on its very next tick, even if neither the pause/resume
+    /// verdict nor the player set looks like it changed.
+    /// </summary>
+    /// <remarks>
+    /// WHY THIS EXISTS. This class acts only on a transition, tracking which pipes its current state
+    /// was last applied to - which is right for its own tick, but blind to anything another actor
+    /// does to the same players in between ticks. <c>PlayerSync.AlignAsync</c> (driven by
+    /// <c>WallpaperEngine.AlignPlayers</c>, via <c>EngineHost.AlignPassCompleted</c>) resumes every
+    /// player it aligns UNCONDITIONALLY, even one this governor paused - a confirmed-sound safety
+    /// property that must not change (a stranded pause freezes a display forever; an extra resume
+    /// costs nothing when the governor immediately re-pauses it). So an align pass can silently undo
+    /// a pause the governor still believes is in force, and without this hook the governor would never
+    /// find out: <c>_paused</c> and <c>_appliedTo</c> both still describe the state from before the
+    /// align pass ran, the verdict has not changed, and the player set (by pipe name) has not changed
+    /// either, so <c>OnTick</c>'s early-return would fire every second thereafter.
+    ///
+    /// CHEAP, DELIBERATELY. This does not itself write anything to a pipe - it only clears the memory
+    /// of what was last applied, so the very next tick's own comparison comes out "changed" and falls
+    /// through to re-evaluate the Performance rules from scratch, pausing again only if they still
+    /// call for it. Calling this on every align pass, successful or not, costs nothing beyond that one
+    /// extra tick's worth of evaluation.
+    /// </remarks>
+    public void ForceReassertNextTick() => _forceReassert = true;
 
     /// <summary>
     /// async void, and wrapped end to end for it.
@@ -88,6 +114,14 @@ public sealed class PlaybackGovernor : IDisposable
         if (_ticking) return;
         _ticking = true;
 
+        // Consumed immediately, not held across the awaits below: ForceReassertNextTick can be
+        // called from another thread's continuation (EngineHost.AlignPassCompleted fires on whatever
+        // thread the align pass finished on) at any time, and this tick must act on whatever value
+        // was set before it started, not on one that arrives mid-tick and gets silently missed by a
+        // later tick's check ordering.
+        var forced = _forceReassert;
+        _forceReassert = false;
+
         try
         {
             var config = _engine.Config;
@@ -104,7 +138,11 @@ public sealed class PlaybackGovernor : IDisposable
             var shouldPause = PauseDecision.ShouldPause(
                 QueryState(), OnBattery(), config.PauseOnFullscreen, config.PauseOnBattery);
 
-            var playersChanged = !pipes.SequenceEqual(_appliedTo, StringComparer.Ordinal);
+            // FORCED COUNTS AS A PLAYER-SET CHANGE. This is the whole fix for the align-resume race:
+            // a forced re-check must not let the "verdict AND players both look unchanged" early
+            // return below skip re-applying a pause that AlignAsync silently undid. See
+            // ForceReassertNextTick's remarks.
+            var playersChanged = forced || !pipes.SequenceEqual(_appliedTo, StringComparer.Ordinal);
 
             if (shouldPause == _paused && !playersChanged) return;
 
