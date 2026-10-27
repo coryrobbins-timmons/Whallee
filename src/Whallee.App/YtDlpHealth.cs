@@ -36,6 +36,20 @@ internal static class YtDlpHealth
     }
 
     /// <summary>
+    /// Drops the cached answer so the next VersionAsync launches yt-dlp again.
+    /// </summary>
+    /// <remarks>
+    /// Called only after the "Update yt-dlp" button runs. A self-update rewrites the file at the
+    /// SAME path, which the path comparison above cannot see, so without this the stale warning
+    /// would outlive the update until the app restarted.
+    /// </remarks>
+    public static void Invalidate()
+    {
+        _path = null;
+        _check = null;
+    }
+
+    /// <summary>
     /// The cached age in days when yt-dlp is known to be stale; null otherwise.
     /// </summary>
     /// <remarks>

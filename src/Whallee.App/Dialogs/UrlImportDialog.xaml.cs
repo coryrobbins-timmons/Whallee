@@ -24,7 +24,7 @@ namespace Whallee.App.Dialogs;
 /// </remarks>
 public partial class UrlImportDialog : Window
 {
-    private readonly string _ytDlpPath;
+    private string _ytDlpPath;   // not readonly: UpdateTool_Click re-locates after a winget upgrade
     private VideoMetadata? _metadata;
 
     public ImportRequest? Result { get; private set; }
@@ -51,6 +51,7 @@ public partial class UrlImportDialog : Window
         // already been killed once exactly that way. EVERY handler on this window is subscribed
         // here, after InitializeComponent, and none in the markup.
         UrlBox.TextChanged += UrlBox_TextChanged;
+        UpdateToolButton.Click += UpdateTool_Click;
 
         // SET AFTER THE SUBSCRIPTION, NOT AS A XAML ATTRIBUTE - the paragraph above is exactly why.
         // By this point InitializeComponent has finished and every element exists, so the
@@ -98,10 +99,59 @@ public partial class UrlImportDialog : Window
             if (warning is null) return;
 
             StaleToolText.Text = warning;
-            StaleToolText.Visibility = Visibility.Visible;
+            StaleToolPanel.Visibility = Visibility.Visible;
         }
         catch (Exception)
         {
+        }
+    }
+
+    /// <summary>
+    /// Runs the update the warning names, then re-reads the version to say what actually happened.
+    /// </summary>
+    /// <remarks>
+    /// async void and wrapped, like every awaiting handler here. Nothing blocks: the update runs as a
+    /// child process awaited off the dispatcher, so the window keeps pumping for the minute it takes.
+    ///
+    /// RE-LOCATES AFTERWARDS. A winget upgrade can move yt-dlp to a new folder, leaving _ytDlpPath
+    /// pointing at a file that no longer exists; Locate falls through to PATH and the winget tree
+    /// when the old path is gone. The import itself re-locates the same way (ImportFromUrlAsync), so
+    /// only this dialog's own lookups need the new path carried here.
+    /// </remarks>
+    private async void UpdateTool_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateToolButton.IsEnabled = false;
+        ProbeButton.IsEnabled = false;
+        StaleToolText.Text = "Updating yt-dlp… this can take a minute.";
+
+        try
+        {
+            var before = await YtDlpHealth.VersionAsync(_ytDlpPath);
+            var said = await YtDlpUpdater.RunAsync(_ytDlpPath, YtDlpLocator.DefaultWingetPackagesRoot);
+
+            _ytDlpPath = await Task.Run(() => YtDlpLocator.Locate(_ytDlpPath)) ?? _ytDlpPath;
+            YtDlpHealth.Invalidate();
+            var after = await YtDlpHealth.VersionAsync(_ytDlpPath);
+
+            if (after is { } now && (before is not { } then || now > then))
+            {
+                StaleToolText.Text = $"yt-dlp updated to {now:yyyy.MM.dd}.";
+                UpdateToolButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            // Not newer: say what the tool said, and leave the button for another try.
+            StaleToolText.Text = "yt-dlp was not updated." + (said is null ? "" : $" {said}");
+            UpdateToolButton.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            StaleToolText.Text = $"Could not update yt-dlp: {ex.Message}";
+            UpdateToolButton.IsEnabled = true;
+        }
+        finally
+        {
+            ProbeButton.IsEnabled = UrlBox.Text.Trim().Length > 0;
         }
     }
 

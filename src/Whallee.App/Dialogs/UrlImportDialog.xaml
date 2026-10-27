@@ -14,8 +14,13 @@
 
         <!-- ACCENT, NOT DANGER. Red overstates a tool that still works most of the time, and this
              line is advice, not an error. -->
-        <TextBlock x:Name="StaleToolText" Foreground="{StaticResource AccentBrush}"
-                   Margin="0,10,0,0" TextWrapping="Wrap" Visibility="Collapsed" />
+        <!-- The button's Click is subscribed in the code-behind constructor, not here. -->
+        <DockPanel x:Name="StaleToolPanel" Margin="0,10,0,0" Visibility="Collapsed">
+            <Button x:Name="UpdateToolButton" DockPanel.Dock="Right" Content="Update yt-dlp"
+                    Margin="8,0,0,0" VerticalAlignment="Top" />
+            <TextBlock x:Name="StaleToolText" Foreground="{StaticResource AccentBrush}"
+                       TextWrapping="Wrap" />
+        </DockPanel>
 
         <StackPanel x:Name="DetailsPanel" Visibility="Collapsed" Margin="0,14,0,0">
             <TextBlock x:Name="TitleText" FontWeight="SemiBold" TextWrapping="Wrap" />
