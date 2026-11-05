@@ -50,7 +50,72 @@ public partial class LibraryPage : UserControl
             ShowDetails: ShowDetails,
             Delete: DeleteClip);
 
+        // Tile dragging, on the host for the same reason as ContextMenuOpening: the tiles do not
+        // exist yet. PREVIEW events, because the tile Button marks the plain ones handled.
+        TileHost.PreviewMouseLeftButtonDown += TileHost_PreviewMouseLeftButtonDown;
+        TileHost.PreviewMouseLeftButtonUp += (_, _) => _tilePressedAt = null;
+        TileHost.PreviewMouseMove += TileHost_PreviewMouseMove;
+
         Loaded += OnLoaded;
+    }
+
+    /// <summary>Where a tile press started, until it becomes a click or a drag.</summary>
+    private Point? _tilePressedAt;
+
+    private void TileHost_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e) =>
+        _tilePressedAt = e.GetPosition(TileHost);
+
+    /// <summary>
+    /// Starts dragging a clip tile toward the genre bar once the pointer passes the drag threshold.
+    /// </summary>
+    /// <remarks>
+    /// THE THRESHOLD IS WHAT KEEPS CLICKS WORKING, same as GenreBar's tab dragging: a click applies
+    /// the clip, and starting a drag on the first pixel of movement would swallow it.
+    ///
+    /// THE TILE'S MOUSE CAPTURE IS RELEASED BEFORE THE DRAG. A Button that still holds capture when
+    /// the drag ends treats the release as the end of a click and fires Tile_Click - which applies
+    /// the clip, a ~3 s engine restart, every time the owner merely filed it.
+    ///
+    /// Wrapped: a Dispatcher callback, where an escaping exception ends the process.
+    /// </remarks>
+    private void TileHost_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != System.Windows.Input.MouseButtonState.Pressed ||
+            _tilePressedAt is not { } start) return;
+
+        var now = e.GetPosition(TileHost);
+        if (Math.Abs(now.X - start.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(now.Y - start.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        _tilePressedAt = null;
+
+        try
+        {
+            var tile = FindTileButton(e.OriginalSource as DependencyObject);
+            if (tile is not { DataContext: ClipTile clip }) return;
+
+            tile.ReleaseMouseCapture();
+            DragDrop.DoDragDrop(tile, new DataObject(GenreBar.ClipDragFormat, clip),
+                                DragDropEffects.Move);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not drag that clip: {ex.Message}");
+        }
+    }
+
+    /// <summary>The tile Button an event came from, walking up from whatever was under the pointer.</summary>
+    private static Button? FindTileButton(DependencyObject? from)
+    {
+        while (from is not null)
+        {
+            if (from is Button { DataContext: ClipTile } button) return button;
+            from = from is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(from)
+                : LogicalTreeHelper.GetParent(from);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -578,7 +643,8 @@ public partial class LibraryPage : UserControl
         GenreBar.Populate(
             GenreBarHost, _model.Genres, _selectedGenre,
             hasUngrouped: hasUngrouped,
-            new GenreBarActions(SelectGenre, RenameGenre, DeleteGenre, CreateGenre, MoveGenreTo));
+            new GenreBarActions(SelectGenre, RenameGenre, DeleteGenre, CreateGenre, MoveGenreTo,
+                                SetGenre));
 
         ApplyGenreView();
     }

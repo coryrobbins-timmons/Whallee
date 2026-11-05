@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using Whallee.App.ViewModels;
 using Whallee.Core.Configuration;
 
 namespace Whallee.App.Pages;
@@ -9,12 +10,14 @@ namespace Whallee.App.Pages;
 /// <param name="Select">Show this genre; null means All, and <see cref="GenreBar.Ungrouped"/> means the untagged ones.</param>
 /// <param name="Create">Create a new, empty genre.</param>
 /// <param name="MoveTo">Move a genre to a dropped position.</param>
+/// <param name="FileClip">File a clip dropped on a tab under that genre; null for Ungrouped.</param>
 internal sealed record GenreBarActions(
     Action<string?> Select,
     Action<string> Rename,
     Action<string> Delete,
     Action Create,
-    Action<string, int> MoveTo);
+    Action<string, int> MoveTo,
+    Action<ClipTile, string?> FileClip);
 
 /// <summary>
 /// Builds the library's genre filter bar, fresh every time the genres change.
@@ -40,9 +43,21 @@ internal static class GenreBar
     /// <summary>The drag-and-drop payload format. Private to this bar.</summary>
     private const string DragFormat = "WhalleeGenreTab";
 
+    /// <summary>The payload format for a clip tile dragged from the library onto a tab.</summary>
+    public const string ClipDragFormat = "WhalleeClipTile";
+
     /// <summary>Border thickness marking the edge a drop would land on.</summary>
     private static readonly Thickness DropBefore = new(3, 1, 1, 1);
     private static readonly Thickness DropAfter = new(1, 1, 3, 1);
+
+    /// <summary>A clip drop files into the whole tab, so the whole edge thickens.</summary>
+    private static readonly Thickness DropInto = new(3);
+
+    /// <summary>
+    /// The gap below every tab. Without it, a bar that wraps to a second row sets the rows
+    /// edge-to-edge and the tabs read as one block.
+    /// </summary>
+    private const double RowGap = 8;
 
     public static void Populate(
         Panel host, IReadOnlyList<string> genres, string? selected, bool hasUngrouped,
@@ -70,14 +85,17 @@ internal static class GenreBar
 
         // Only when there is something in it: an "Ungrouped" tab that is always empty is noise.
         if (hasUngrouped)
-            host.Children.Add(Tab(
-                "Ungrouped", selected == Ungrouped, () => actions.Select(Ungrouped)));
+        {
+            var ungrouped = Tab("Ungrouped", selected == Ungrouped, () => actions.Select(Ungrouped));
+            AcceptClips(ungrouped, null, actions);
+            host.Children.Add(ungrouped);
+        }
 
         // LAST, AND DELIBERATELY NOT A TAB. It creates rather than filters, so it never carries the
         // selected style and is set off by a wider margin - a button that looks like the filters
         // would read as a genre called "+ New genre".
         var create = Tab("+ New genre", isSelected: false, actions.Create);
-        create.Margin = new Thickness(16, 0, 0, 0);
+        create.Margin = new Thickness(16, 0, 0, RowGap);
         host.Children.Add(create);
     }
 
@@ -86,7 +104,7 @@ internal static class GenreBar
         var button = new Button
         {
             Content = header,
-            Margin = new Thickness(0, 0, 8, 0),
+            Margin = new Thickness(0, 0, 8, RowGap),
 
             // The selected tab uses the app's primary button look, so "which one am I on?" is
             // answered by the same visual language as every other affirmative control.
@@ -161,8 +179,13 @@ internal static class GenreBar
 
         tab.AllowDrop = true;
 
+        // Clip drops are handled first and mark the event, so the reorder handlers below only ever
+        // see tab drags.
+        AcceptClips(tab, genre, actions);
+
         tab.DragOver += (_, e) =>
         {
+            if (e.Handled) return;
             var carried = e.Data.GetDataPresent(DragFormat);
             e.Effects = carried ? DragDropEffects.Move : DragDropEffects.None;
             e.Handled = true;
@@ -176,6 +199,7 @@ internal static class GenreBar
 
         tab.Drop += (_, e) =>
         {
+            if (e.Handled) return;
             tab.ClearValue(Control.BorderThicknessProperty);
 
             if (e.Data.GetData(DragFormat) is not string dragged) return;
@@ -196,6 +220,37 @@ internal static class GenreBar
             if (source < target) index--;
 
             actions.MoveTo(dragged, index);
+        };
+    }
+
+    /// <summary>
+    /// Lets a clip tile dragged from the library be dropped on this tab to file it there.
+    /// </summary>
+    /// <remarks>
+    /// Added 2026-11-05 at the owner's request, beside the clip menu's Genre submenu rather than
+    /// replacing it: the menu still reaches genres scrolled out of sight, a drop cannot.
+    /// "All" and "+ New genre" never get this - neither is a place a clip can be filed.
+    /// </remarks>
+    private static void AcceptClips(Button tab, string? genre, GenreBarActions actions)
+    {
+        tab.AllowDrop = true;
+
+        tab.DragOver += (_, e) =>
+        {
+            if (!e.Data.GetDataPresent(ClipDragFormat)) return;
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
+            tab.BorderThickness = DropInto;
+        };
+
+        tab.DragLeave += (_, _) => tab.ClearValue(Control.BorderThicknessProperty);
+
+        tab.Drop += (_, e) =>
+        {
+            if (e.Data.GetData(ClipDragFormat) is not ClipTile clip) return;
+            e.Handled = true;
+            tab.ClearValue(Control.BorderThicknessProperty);
+            actions.FileClip(clip, genre);
         };
     }
 

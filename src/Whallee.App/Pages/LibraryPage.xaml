@@ -104,7 +104,9 @@
 
         <!-- Collapsed until a genre exists, so it costs nothing before the owner tags anything.
              Populated in code: its buttons come from live state, exactly as ClipContextMenu does. -->
-        <WrapPanel x:Name="GenreBarHost" Grid.Row="2" Margin="0,0,0,12" Visibility="Collapsed" />
+        <!-- Bottom margin 4, not 12: every tab now carries 8 below it (GenreBar.RowGap) so wrapped
+             rows do not touch, and the two add back up to the original 12 above the clips. -->
+        <WrapPanel x:Name="GenreBarHost" Grid.Row="2" Margin="0,0,0,4" Visibility="Collapsed" />
 
         <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,-8,0">
             <ItemsControl x:Name="TileHost">
