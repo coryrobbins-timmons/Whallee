@@ -57,6 +57,10 @@
                     Click="AddFromFile_Click" />
             <Button x:Name="AddFromUrl" Content="Add from YouTube URL…" Margin="8,0,0,0"
                     Click="AddFromUrl_Click" />
+            <!-- Clicks subscribed in the constructor. Daily Shuffle is a toggle: amber
+                 (PrimaryButtonStyle) while on, like the selected genre tab. -->
+            <Button x:Name="ShuffleButton" Content="Shuffle" Margin="20,0,0,0" />
+            <Button x:Name="DailyShuffleButton" Content="Daily Shuffle" Margin="8,0,0,0" />
         </StackPanel>
 
         <!--

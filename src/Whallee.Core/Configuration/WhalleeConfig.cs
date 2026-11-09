@@ -39,5 +39,12 @@ public sealed class WhalleeConfig
     /// <summary>Pause playback while running on battery.</summary>
     public bool PauseOnBattery { get; set; }
 
+    /// <summary>Re-shuffle every display on the first start of each new calendar day.</summary>
+    /// <remarks>Opt-in like the pause flags: an older config deserialises it to false.</remarks>
+    public bool DailyShuffle { get; set; }
+
+    /// <summary>The day of the last shuffle, manual or daily. Null until the first one.</summary>
+    public DateOnly? LastShuffleDate { get; set; }
+
     public List<DisplayAssignment> Displays { get; set; } = new();
 }

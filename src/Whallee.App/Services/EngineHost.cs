@@ -89,6 +89,8 @@ public sealed class EngineHost : IDisposable
 
     public void Start()
     {
+        ApplyDailyShuffleIfDue();
+
         // Saved BEFORE Start(). No host window exists yet, so nothing shares an input queue with
         // Explorer: this is the only window in which synchronous disk I/O is unconditionally safe.
         // It also means a Start() that fails outright still leaves the seeded config on disk.
@@ -129,6 +131,36 @@ public sealed class EngineHost : IDisposable
         // binds to. Without it, a first run on a fresh machine leaves Displays empty on disk.
         // It is a small write to LocalApplicationData on a local disk, once per run.
         ConfigStore.Save(Config, _configPath);
+    }
+
+    /// <summary>
+    /// "Daily Shuffle": on the first start of a new calendar day, pin a random clip to each display.
+    /// </summary>
+    /// <remarks>
+    /// RUNS BEFORE THE ENGINE STARTS, so the new picks are simply what the first pass plays - no
+    /// second pass, no flicker. That is also why the library listing here is safe on this thread:
+    /// no host window exists yet (see the save below). Displays seen for the first time get no
+    /// assignment row until Start() creates it; they play a random clip anyway, which is the same.
+    ///
+    /// Only at start, i.e. at logon. A machine that sleeps overnight keeps yesterday's picks until
+    /// Whallee next starts.
+    /// </remarks>
+    private void ApplyDailyShuffleIfDue()
+    {
+        try
+        {
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            if (!ClipShuffle.IsDailyDue(Config.DailyShuffle, Config.LastShuffleDate, today)) return;
+
+            if (ClipShuffle.Apply(Config, ClipResolver.ListLibraryFiles(Config.LibraryFolder),
+                                  Random.Shared, today))
+                _reporter.Report("daily shuffle — new clips picked for today");
+        }
+        catch (Exception ex)
+        {
+            // A failed shuffle must never stop the wallpaper starting: yesterday's picks still play.
+            _reporter.Report($"daily shuffle skipped: {ex.Message}");
+        }
     }
 
     public void Restart()

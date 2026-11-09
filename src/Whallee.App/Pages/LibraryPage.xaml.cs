@@ -56,7 +56,61 @@ public partial class LibraryPage : UserControl
         TileHost.PreviewMouseLeftButtonUp += (_, _) => _tilePressedAt = null;
         TileHost.PreviewMouseMove += TileHost_PreviewMouseMove;
 
+        ShuffleButton.Click += Shuffle_Click;
+        DailyShuffleButton.Click += DailyShuffle_Click;
+        ShowDailyShuffleState();
+
         Loaded += OnLoaded;
+    }
+
+    /// <summary>
+    /// Synchronous for the same reason as Tile_Click: the engine pass runs inline on this thread,
+    /// which owns the host windows and pumps throughout. Wrapped - a Dispatcher callback.
+    /// </summary>
+    private void Shuffle_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // Honours "Apply to", exactly as clicking a tile does.
+            var index = TargetSelector.SelectedIndex;
+            var device = index >= 0 && index < _model.TargetDeviceNames.Count
+                ? _model.TargetDeviceNames[index]
+                : null;
+
+            _model.ShuffleNow(device);
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not shuffle: {ex.Message}");
+        }
+    }
+
+    private void DailyShuffle_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _model.SetDailyShuffle(!_model.DailyShuffle);
+            ShowDailyShuffleState();
+        }
+        catch (Exception ex)
+        {
+            _reporter.Report($"could not change Daily Shuffle: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Amber while on - the selected genre tab's look, by the same two style keys GenreBar uses
+    /// (and for the same reason: a null Style would block the implicit dark one).
+    /// </summary>
+    private void ShowDailyShuffleState()
+    {
+        var on = _model.DailyShuffle;
+        DailyShuffleButton.Style = on
+            ? (Style)FindResource("PrimaryButtonStyle")
+            : (Style)FindResource(typeof(Button));
+        DailyShuffleButton.ToolTip = on
+            ? "On: every display gets a new random clip the first time Whallee starts each day. Click to turn off."
+            : "Off. Click to give every display a new random clip each day.";
     }
 
     /// <summary>Where a tile press started, until it becomes a click or a drag.</summary>
@@ -91,7 +145,7 @@ public partial class LibraryPage : UserControl
 
         try
         {
-            var tile = FindTileButton(e.OriginalSource as DependencyObject);
+            var tile = FindTileButton(e.OriginalSource);
             if (tile is not { DataContext: ClipTile clip }) return;
 
             tile.ReleaseMouseCapture();
@@ -104,19 +158,6 @@ public partial class LibraryPage : UserControl
         }
     }
 
-    /// <summary>The tile Button an event came from, walking up from whatever was under the pointer.</summary>
-    private static Button? FindTileButton(DependencyObject? from)
-    {
-        while (from is not null)
-        {
-            if (from is Button { DataContext: ClipTile } button) return button;
-            from = from is Visual or System.Windows.Media.Media3D.Visual3D
-                ? VisualTreeHelper.GetParent(from)
-                : LogicalTreeHelper.GetParent(from);
-        }
-
-        return null;
-    }
 
     /// <summary>
     /// Re-reads the attached displays. Called each time the page is shown, because this instance is
@@ -228,10 +269,16 @@ public partial class LibraryPage : UserControl
                 return;
             }
 
-            var dialog = new UrlImportDialog(ytDlp) { Owner = Window.GetWindow(this) };
+            // Pre-selects the genre being viewed: importing while looking at "Winter" most likely
+            // means the clip belongs there. All and Ungrouped pre-select nothing.
+            var viewing = _selectedGenre == GenreBar.Ungrouped ? null : _selectedGenre;
+            var dialog = new UrlImportDialog(ytDlp, null, _model.Genres, viewing)
+            {
+                Owner = Window.GetWindow(this)
+            };
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
-            await RunUrlImportAsync(dialog.Result, replacing: null);
+            await RunUrlImportAsync(dialog.Result, replacing: null, dialog.ClipName, dialog.Genre);
         }
         catch (Exception ex)
         {
@@ -257,7 +304,10 @@ public partial class LibraryPage : UserControl
     /// SHARED BY "Add from URL" AND "Edit…" so the two cannot drift. Everything a finished import
     /// must do - record its source, refresh, apply, report - belongs here exactly once.
     /// </remarks>
-    private async Task RunUrlImportAsync(ImportRequest request, string? replacing)
+    /// <param name="clipName">The base name the owner typed in the dialog, or null to keep the importer's.</param>
+    /// <param name="chosenGenre">The genre picked in the dialog; null for Ungrouped. May not exist yet.</param>
+    private async Task RunUrlImportAsync(
+        ImportRequest request, string? replacing, string? clipName, string? chosenGenre)
     {
         {
             AddFromUrl.IsEnabled = false;
@@ -299,16 +349,16 @@ public partial class LibraryPage : UserControl
                 {
                     var landed = System.IO.Path.GetFileName(outcome.LibraryPath!);
 
-                    // THE GENRE IS CARRIED ACROSS, and must be: Record REPLACES the whole entry, so
-                    // a re-import ("Edit…") that lands under the same name would otherwise reset
-                    // Genre to its null default and quietly drop the clip into Ungrouped. A genre is
-                    // the owner's filing, not source metadata, and survives a re-import.
-                    //
-                    // The landing name is asked first (the usual case: the replacement overwrote the
-                    // clip that was tagged), then the name being replaced, which covers a re-import
-                    // that landed under a DIFFERENT name - the tag follows the clip, not the file.
-                    var genre = _model.GenreOf(landed)
-                                ?? (replacing is null ? null : _model.GenreOf(replacing));
+                    // THE DIALOG'S GENRE IS THE ANSWER, always. It used to be carried across from
+                    // the old entry because Record REPLACES the whole entry; "Edit…" now prefills
+                    // the Genre box with the clip's current genre, so the carry-over happens there
+                    // and a blank box means the owner cleared it on purpose.
+                    var genre = chosenGenre;
+
+                    // A genre typed fresh in the dialog is created first, so the bar lists it.
+                    if (genre is not null &&
+                        !_model.Genres.Any(g => Whallee.Core.Configuration.ClipGenres.Same(g, genre)))
+                        _model.AddGenre(genre);
 
                     _model.RecordSource(
                         landed,
@@ -324,6 +374,31 @@ public partial class LibraryPage : UserControl
                 await _model.LoadAsync();
                 RefreshGenreView();
 
+                // THE NAME FROM THE DIALOG, applied once the clip is listed. Through the same
+                // RenameClipAsync as "Rename…", so pins, the source record and the thumbnail follow.
+                // A refused rename (a clash, say) leaves the import's own name: the clip still landed.
+                var landedPath = outcome.LibraryPath!;
+                if (clipName is not null &&
+                    !string.Equals(clipName, System.IO.Path.GetFileNameWithoutExtension(landedPath),
+                                   StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        if (await _model.RenameClipAsync(landedPath, clipName))
+                        {
+                            landedPath = System.IO.Path.Combine(
+                                System.IO.Path.GetDirectoryName(landedPath)!,
+                                clipName + System.IO.Path.GetExtension(landedPath));
+                            await _model.LoadAsync();
+                            RefreshGenreView();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _reporter.Report($"imported, but could not rename it: {ex.Message}");
+                    }
+                }
+
                 // A THEMED CARD, NOT A MessageBox. The old one was a stock system dialog - light
                 // chrome in a dark app, four lines of prose, and a modal interruption for news
                 // that is usually just "it worked".
@@ -333,7 +408,7 @@ public partial class LibraryPage : UserControl
                 // user learns the network capped their clip or ignored their start time.
                 // ImportSummary decides the wording and is unit-tested for exactly that.
                 var summary = ImportSummary.Describe(
-                    System.IO.Path.GetFileNameWithoutExtension(outcome.LibraryPath ?? string.Empty),
+                    System.IO.Path.GetFileNameWithoutExtension(landedPath),
                     request.Length, request.Start,
                     outcome.ActualLength, outcome.Strategy,
                     YtDlpHealth.StaleAgeInDays());
@@ -363,7 +438,7 @@ public partial class LibraryPage : UserControl
                 // still be reported as imported even if applying it fails.
                 try
                 {
-                    _model.ApplyClip(outcome.LibraryPath!, null);
+                    _model.ApplyClip(landedPath, null);
                 }
                 catch (Exception ex)
                 {
@@ -437,10 +512,15 @@ public partial class LibraryPage : UserControl
                 return;
             }
 
-            var dialog = new UrlImportDialog(ytDlp, source.Url) { Owner = Window.GetWindow(this) };
+            var dialog = new UrlImportDialog(
+                ytDlp, source.Url, _model.Genres, _model.GenreOf(tile.FileName))
+            {
+                Owner = Window.GetWindow(this)
+            };
             if (dialog.ShowDialog() != true || dialog.Result is null) return;
 
-            await RunUrlImportAsync(dialog.Result, replacing: tile.FileName);
+            await RunUrlImportAsync(
+                dialog.Result, replacing: tile.FileName, dialog.ClipName, dialog.Genre);
         }
         catch (Exception ex)
         {

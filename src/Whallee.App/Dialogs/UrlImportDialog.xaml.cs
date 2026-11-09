@@ -27,16 +27,29 @@ public partial class UrlImportDialog : Window
     private string _ytDlpPath;   // not readonly: UpdateTool_Click re-locates after a winget upgrade
     private VideoMetadata? _metadata;
 
+    private readonly IReadOnlyList<string> _genres;
+
     public ImportRequest? Result { get; private set; }
 
-    public UrlImportDialog(string ytDlpPath) : this(ytDlpPath, null) { }
+    /// <summary>The base name to give the clip, normalised; null keeps the importer's name.</summary>
+    public string? ClipName { get; private set; }
+
+    /// <summary>The genre to file the clip under; null leaves it Ungrouped. May be a new genre.</summary>
+    public string? Genre { get; private set; }
 
     /// <param name="prefillUrl">
     /// A link to start from, used by "Edit…" so the owner need not find the video again.
     /// </param>
-    public UrlImportDialog(string ytDlpPath, string? prefillUrl)
+    /// <param name="genres">The existing genres, offered in the Genre box.</param>
+    /// <param name="prefillGenre">The genre to start on - "Edit…" passes the clip's current one.</param>
+    public UrlImportDialog(
+        string ytDlpPath, string? prefillUrl, IReadOnlyList<string> genres, string? prefillGenre)
     {
         InitializeComponent();
+
+        _genres = genres;
+        GenreBox.ItemsSource = genres;
+        GenreBox.Text = prefillGenre ?? string.Empty;
 
         // Follows this file's stated convention: subscribed in code after
         // InitializeComponent, never in the markup. Apply defers itself to
@@ -255,6 +268,33 @@ public partial class UrlImportDialog : Window
             var error = ImportPlanner.ValidateSection(start, length, _metadata.Duration);
             if (error is not null) { ShowError(error); return; }
 
+            // Checked here, before the download, so a bad name costs a retype rather than a
+            // finished import that then fails to rename.
+            string? name = null;
+            if (NameBox.Text.Trim().Length > 0)
+            {
+                var invalid = Whallee.Core.Configuration.ClipRename.Validate(NameBox.Text);
+                if (invalid is not null) { ShowError($"Name: {invalid}"); return; }
+                name = Whallee.Core.Configuration.ClipRename.Normalise(NameBox.Text);
+            }
+
+            // An existing genre is matched by the same rule the bar uses, so "winter" files under
+            // "Winter" rather than being refused as a duplicate. Only a genuinely new one is validated.
+            string? genre = null;
+            var typed = GenreBox.Text.Trim();
+            if (typed.Length > 0)
+            {
+                genre = _genres.FirstOrDefault(g => Whallee.Core.Configuration.ClipGenres.Same(g, typed));
+                if (genre is null)
+                {
+                    var invalid = Whallee.Core.Configuration.ClipGenres.Validate(typed, _genres);
+                    if (invalid is not null) { ShowError($"Genre: {invalid}"); return; }
+                    genre = typed;
+                }
+            }
+
+            ClipName = name;
+            Genre = genre;
             Result = new ImportRequest(UrlBox.Text.Trim(), start, length);
             DialogResult = true;
         }

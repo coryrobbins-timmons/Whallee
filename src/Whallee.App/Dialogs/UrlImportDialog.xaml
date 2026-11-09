@@ -36,6 +36,14 @@
                 <TextBox x:Name="LengthBox" Width="80" Text="5:00" />
             </StackPanel>
 
+            <!-- OPTIONAL, both of them. Blank name keeps the importer's own file name; blank genre
+                 leaves the clip Ungrouped. Typing a genre that does not exist yet creates it. -->
+            <TextBlock Text="Name (optional)" FontWeight="SemiBold" Margin="0,12,0,4" />
+            <TextBox x:Name="NameBox" />
+
+            <TextBlock Text="Genre (optional)" FontWeight="SemiBold" Margin="0,12,0,4" />
+            <ComboBox x:Name="GenreBox" IsEditable="True" />
+
             <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" Margin="0,10,0,0"
                        TextWrapping="Wrap" Visibility="Collapsed" />
         </StackPanel>

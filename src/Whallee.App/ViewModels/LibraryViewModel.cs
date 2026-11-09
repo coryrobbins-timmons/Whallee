@@ -236,6 +236,40 @@ public sealed class LibraryViewModel
         _engine.ApplyConfigChange();
     }
 
+    /// <summary>"Shuffle": pins a random clip to one display, or to every display, now.</summary>
+    /// <param name="deviceName">The "Apply to" choice; null means all displays.</param>
+    /// <remarks>
+    /// Picks from the tiles already listed, so no disk I/O on this thread. Returns false when the
+    /// library is empty or the display is not in config.
+    /// </remarks>
+    public bool ShuffleNow(string? deviceName)
+    {
+        if (!ClipShuffle.Apply(_engine.Config, Tiles.Select(t => t.Path).ToList(), Random.Shared,
+                               DateOnly.FromDateTime(DateTime.Now), deviceName))
+        {
+            _reporter.Report($"nothing shuffled — no clips, or no saved display matches {deviceName ?? "any display"}");
+            return false;
+        }
+
+        _reporter.Report($"shuffling {deviceName ?? "every display"}");
+        _engine.ApplyConfigChange();
+        return true;
+    }
+
+    public bool DailyShuffle => _engine.Config.DailyShuffle;
+
+    /// <summary>Turns Daily Shuffle on or off. Saved without a restart: nothing on screen changes.</summary>
+    /// <remarks>
+    /// TURNING IT ON COUNTS TODAY AS DONE, so the first automatic shuffle is tomorrow's - the
+    /// "next calendar day" the owner asked for - rather than the next time Whallee restarts today.
+    /// </remarks>
+    public void SetDailyShuffle(bool on)
+    {
+        _engine.Config.DailyShuffle = on;
+        if (on) _engine.Config.LastShuffleDate = DateOnly.FromDateTime(DateTime.Now);
+        _engine.SaveConfig();
+    }
+
     /// <summary>
     /// Copies a file into the library folder. Returns the path the clip now lives at, or null if
     /// its extension is not one the engine can play.
