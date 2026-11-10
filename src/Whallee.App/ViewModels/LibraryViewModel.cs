@@ -196,7 +196,9 @@ public sealed class LibraryViewModel
 
         Targets.Clear();
         Targets.Add("All displays");
-        foreach (var display in displays) Targets.Add(display.DeviceName);
+        // The label only: _targetDeviceNames keeps the raw names, by the same index.
+        foreach (var display in displays)
+            Targets.Add(Whallee.Core.Desktop.DisplayLabel.For(display.DeviceName));
     }
 
     /// <summary>

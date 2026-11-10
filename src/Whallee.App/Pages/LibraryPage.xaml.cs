@@ -56,6 +56,15 @@ public partial class LibraryPage : UserControl
         TileHost.PreviewMouseLeftButtonUp += (_, _) => _tilePressedAt = null;
         TileHost.PreviewMouseMove += TileHost_PreviewMouseMove;
 
+        // RE-READ ON EVERY OPEN, not only when the page is shown. Docking or undocking while the
+        // Library page is already open otherwise leaves the list naming yesterday's monitors - seen
+        // 2026-11-10 when a new dock's two screens were playing but missing from this list.
+        TargetSelector.DropDownOpened += (_, _) =>
+        {
+            try { RefreshTargets(); }
+            catch (Exception ex) { _reporter.Report($"could not list the displays: {ex.Message}"); }
+        };
+
         ShuffleButton.Click += Shuffle_Click;
         DailyShuffleButton.Click += DailyShuffle_Click;
         ShowDailyShuffleState();

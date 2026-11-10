@@ -95,7 +95,7 @@ internal static class ClipContextMenu
             // Captured into a local: the loop variable must not be closed over directly.
             var deviceName = display.DeviceName;
 
-            var item = new MenuItem { Header = deviceName };
+            var item = new MenuItem { Header = Whallee.Core.Desktop.DisplayLabel.For(deviceName) };
             item.Click += (_, _) => actions.Apply(tile, deviceName);
             parent.Items.Add(item);
         }

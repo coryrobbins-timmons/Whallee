@@ -171,7 +171,7 @@ public partial class SettingsPage : UserControl
 
             var name = new TextBlock
             {
-                Text = row.DeviceName,
+                Text = Whallee.Core.Desktop.DisplayLabel.For(row.DeviceName),
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(name, 0);
