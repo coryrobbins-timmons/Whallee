@@ -197,8 +197,9 @@ public sealed class LibraryViewModel
         Targets.Clear();
         Targets.Add("All displays");
         // The label only: _targetDeviceNames keeps the raw names, by the same index.
+        var order = Whallee.Core.Displays.WindowsDisplayOrder.Read();
         foreach (var display in displays)
-            Targets.Add(Whallee.Core.Desktop.DisplayLabel.For(display.DeviceName));
+            Targets.Add(Whallee.Core.Desktop.DisplayLabel.For(display.DeviceName, order));
     }
 
     /// <summary>

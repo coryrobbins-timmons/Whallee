@@ -90,12 +90,13 @@ internal static class ClipContextMenu
         var displays = DisplayEnumerator.Enumerate();
         if (displays.Count > 0) parent.Items.Add(new Separator());
 
+        var order = Whallee.Core.Displays.WindowsDisplayOrder.Read();
         foreach (var display in displays)
         {
             // Captured into a local: the loop variable must not be closed over directly.
             var deviceName = display.DeviceName;
 
-            var item = new MenuItem { Header = Whallee.Core.Desktop.DisplayLabel.For(deviceName) };
+            var item = new MenuItem { Header = Whallee.Core.Desktop.DisplayLabel.For(deviceName, order) };
             item.Click += (_, _) => actions.Apply(tile, deviceName);
             parent.Items.Add(item);
         }

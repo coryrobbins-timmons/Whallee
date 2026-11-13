@@ -129,7 +129,7 @@ public static class YouTubeImporter
                      // not drop one on the assumption the other already covers it.
                      "--no-mtime",
                      "--download-sections", section,
-                     "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b",
+                     "-f", ImportPlanner.FormatSelector,
                      "-o", target,
                      request.Url
                  })

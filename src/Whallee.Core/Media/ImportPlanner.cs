@@ -47,6 +47,20 @@ public static class ImportPlanner
 
     public static readonly TimeSpan DefaultSectionLength = TimeSpan.FromMinutes(5);
 
+    /// <summary>yt-dlp's -f for strategy A: the best stream at or below 1080p, mp4 preferred.</summary>
+    /// <remarks>
+    /// CAPPED AT 1080p on 2026-11-13, at the owner's request. Every display here is 1920x1080 or
+    /// 1920x1200, so a 4K source is shrunk on every frame: ~3-4x the file, ~4x the download, and
+    /// three players each decoding 4K at once - for a picture the screens cannot show.
+    ///
+    /// READ LEFT TO RIGHT, first match wins: mp4 video + m4a audio at <=1080p; a single mp4 file at
+    /// <=1080p; ANY container at <=1080p (some videos offer 1080p only as webm); and last, plain
+    /// best, so a video with no stream at or below 1080p still imports rather than failing.
+    /// </remarks>
+    public const string FormatSelector =
+        "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/" +
+        "bv*[height<=1080]+ba/b[height<=1080]/b";
+
     private const int MaxSlugLength = 60;
 
     private static readonly HashSet<string> WindowsReservedNames = new(StringComparer.OrdinalIgnoreCase)
