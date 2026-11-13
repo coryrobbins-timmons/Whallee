@@ -96,6 +96,11 @@ public partial class App : Application
         // needs to know about the other; Whallee.Core still knows nothing of PlaybackGovernor.
         Engine.AlignPassCompleted += _governor.ForceReassertNextTick;
 
+        // Before the first window, so it opens in the owner's colours rather than repainting.
+        // Guarded: a theme problem must never stop the app starting - the defaults still apply.
+        try { Theme.ThemeApplier.Apply(Engine.Config.Appearance); }
+        catch (Exception ex) { Reporter.Report($"could not apply the colour settings: {ex.Message}"); }
+
         var window = new MainWindow();
         MainWindow = window;
         window.Show();

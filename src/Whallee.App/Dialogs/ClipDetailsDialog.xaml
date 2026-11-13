@@ -28,28 +28,28 @@
                 <RowDefinition Height="Auto" />  <!-- Source error -->
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="Location" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Location" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PathText" Margin="0,0,0,6"
                        TextWrapping="Wrap" />
 
             <!-- The tiles no longer show the extension, so this is where it lives now. -->
-            <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Format" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="1" Grid.Column="1" x:Name="FormatText" Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="2" Grid.Column="0" Text="Size" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Size" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="2" Grid.Column="1" x:Name="SizeText" Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="3" Grid.Column="0" Text="Duration" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Duration" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="3" Grid.Column="1" x:Name="DurationText" Text="…"
                        Margin="0,0,0,6" />
 
-            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,6" />
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolution" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,6" />
             <TextBlock Grid.Row="4" Grid.Column="1" x:Name="ResolutionText" Text="…" Margin="0,0,0,6" />
 
             <!-- "Location" above is where the FILE is; this is where the video CAME FROM. A TextBox
                  rather than a TextBlock so the link can be selected and copied - and so the same
                  control can be typed into when there is no link yet. -->
-            <TextBlock Grid.Row="5" Grid.Column="0" Text="Source" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,12,0" />
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Source" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,0" />
             <DockPanel Grid.Row="5" Grid.Column="1">
                 <!-- Both collapsed here and shown from code: which one applies depends on whether a
                      source was recorded, which the markup cannot know. -->
@@ -65,7 +65,7 @@
             </DockPanel>
 
             <TextBlock Grid.Row="6" Grid.Column="1" x:Name="SourceError" Margin="0,6,0,0"
-                       Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource DangerBrush}" TextWrapping="Wrap"
                        Visibility="Collapsed" />
         </Grid>
 

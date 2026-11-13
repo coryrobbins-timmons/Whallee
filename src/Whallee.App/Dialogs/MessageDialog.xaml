@@ -9,7 +9,7 @@
 
         <!-- Collapsed unless a detail is supplied, so a one-line message stays one line. -->
         <TextBlock x:Name="DetailText" Margin="0,8,0,0" TextWrapping="Wrap"
-                   Foreground="{StaticResource TextSecondaryBrush}" Visibility="Collapsed" />
+                   Foreground="{DynamicResource TextSecondaryBrush}" Visibility="Collapsed" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
             <!-- Order and defaults are set in code: a destructive confirm must not default to

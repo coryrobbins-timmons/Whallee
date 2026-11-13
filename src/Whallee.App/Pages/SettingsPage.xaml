@@ -24,6 +24,16 @@
 
                 <Border Style="{StaticResource CardStyle}">
                     <StackPanel>
+                        <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}" />
+                        <TextBlock Text="Changes apply straight away — no restart needed."
+                                   Style="{StaticResource CaptionStyle}" />
+                        <!-- Populated by AppearancePanel.Build; empty in markup on purpose. -->
+                        <StackPanel x:Name="AppearanceHost" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
                         <TextBlock Text="Displays" Style="{StaticResource SectionHeaderStyle}" />
                         <!-- Populated by BuildDisplayRows; empty in markup on purpose. -->
                         <StackPanel x:Name="DisplayHost" />
@@ -35,7 +45,7 @@
                         <TextBlock Text="Playback" Style="{StaticResource SectionHeaderStyle}" />
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="Scaling" VerticalAlignment="Center" Width="170"
-                                       Foreground="{StaticResource TextSecondaryBrush}" />
+                                       Foreground="{DynamicResource TextSecondaryBrush}" />
                             <ComboBox x:Name="ScalingBox" Width="190" />
                         </StackPanel>
                     </StackPanel>

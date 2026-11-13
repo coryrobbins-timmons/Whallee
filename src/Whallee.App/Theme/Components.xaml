@@ -22,7 +22,7 @@
          =================================================================================== -->
 
     <Style x:Key="NavItemStyle" TargetType="RadioButton">
-        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Cursor" Value="Hand" />
@@ -44,21 +44,21 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                                    Value="{DynamicResource SurfaceOverlayBrush}" />
                             <Setter Property="Foreground"
-                                    Value="{StaticResource TextPrimaryBrush}" />
+                                    Value="{DynamicResource TextPrimaryBrush}" />
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                                    Value="{DynamicResource SurfaceOverlayBrush}" />
                             <Setter TargetName="Marker" Property="Fill"
-                                    Value="{StaticResource AccentBrush}" />
+                                    Value="{DynamicResource AccentBrush}" />
                             <Setter Property="Foreground"
-                                    Value="{StaticResource TextPrimaryBrush}" />
+                                    Value="{DynamicResource TextPrimaryBrush}" />
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                                    Value="{DynamicResource SurfaceOverlayBrush}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -98,8 +98,8 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Card"
-                            Background="{StaticResource SurfaceRaisedBrush}"
-                            BorderBrush="{StaticResource StrokeBrush}"
+                            Background="{DynamicResource SurfaceRaisedBrush}"
+                            BorderBrush="{DynamicResource StrokeBrush}"
                             BorderThickness="1"
                             CornerRadius="{StaticResource CardRadius}"
                             SnapsToDevicePixels="True">
@@ -111,7 +111,7 @@
                              is not one (MC4111). -->
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Card" Property="BorderBrush"
-                                    Value="{StaticResource AccentBrush}" />
+                                    Value="{DynamicResource AccentBrush}" />
                             <Setter TargetName="Card" Property="RenderTransform">
                                 <Setter.Value>
                                     <TranslateTransform Y="-2" />
@@ -120,7 +120,7 @@
                         </Trigger>
                         <Trigger Property="IsKeyboardFocused" Value="True">
                             <Setter TargetName="Card" Property="BorderBrush"
-                                    Value="{StaticResource AccentBrush}" />
+                                    Value="{DynamicResource AccentBrush}" />
                         </Trigger>
                         <!-- Settles back down under the cursor, so the click has a physical feel.
                              Listed after the hover trigger so it wins when both are true. -->
@@ -142,7 +142,7 @@
          =================================================================================== -->
 
     <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="FontWeight" Value="SemiBold" />
@@ -150,15 +150,15 @@
     </Style>
 
     <Style x:Key="CaptionStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
     <Style x:Key="CardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource SurfaceRaisedBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+        <Setter Property="Background" Value="{DynamicResource SurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource StrokeBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
         <Setter Property="Padding" Value="16" />
@@ -170,7 +170,7 @@
         Controls.xaml and has no key to reference from here.
     -->
     <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-        <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="FontWeight" Value="SemiBold" />
@@ -181,7 +181,7 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="Chrome"
-                            Background="{StaticResource AccentBrush}"
+                            Background="{DynamicResource AccentBrush}"
                             CornerRadius="{StaticResource ControlRadius}"
                             SnapsToDevicePixels="True">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -191,20 +191,20 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource AccentHoverBrush}" />
+                                    Value="{DynamicResource AccentHoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource AccentPressedBrush}" />
+                                    Value="{DynamicResource AccentPressedBrush}" />
                         </Trigger>
                         <!-- Disabled drops to a plain surface, not a dimmed amber. A washed-out
                              accent still reads as "primary action" and invites the click that
                              will not work. -->
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="Chrome" Property="Background"
-                                    Value="{StaticResource SurfaceOverlayBrush}" />
+                                    Value="{DynamicResource SurfaceOverlayBrush}" />
                             <Setter Property="Foreground"
-                                    Value="{StaticResource TextDisabledBrush}" />
+                                    Value="{DynamicResource TextDisabledBrush}" />
                             <Setter Property="Cursor" Value="Arrow" />
                         </Trigger>
                     </ControlTemplate.Triggers>

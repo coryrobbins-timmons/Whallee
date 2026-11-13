@@ -522,7 +522,8 @@ public partial class LibraryPage : UserControl
             }
 
             var dialog = new UrlImportDialog(
-                ytDlp, source.Url, _model.Genres, _model.GenreOf(tile.FileName))
+                ytDlp, source.Url, _model.Genres, _model.GenreOf(tile.FileName),
+                (source.Start, source.Length))
             {
                 Owner = Window.GetWindow(this)
             };
@@ -780,20 +781,14 @@ public partial class LibraryPage : UserControl
 
         TileHost.ItemsSource = view.View;
 
-        // THE PANEL MUST FOLLOW THE GROUPING. With grouping on, ItemsPanel arranges the GROUPS, so
-        // leaving it a WrapPanel lays the genres out side by side and stacks the tiles vertically
-        // inside each one.
+        // ItemsPanel ALWAYS WRAPS THE CLIPS - grouped or not, it is the panel inside each genre.
+        // The genres' own stacking comes from GenreGroupStyle's Panel. See the note in the XAML:
+        // this comment used to claim the opposite, and the All view showed genres as columns.
         TileHost.GroupStyle.Clear();
+        TileHost.ItemsPanel = (ItemsPanelTemplate)FindResource("FlatTilePanel");
 
         if (_selectedGenre is null)
-        {
-            TileHost.ItemsPanel = (ItemsPanelTemplate)FindResource("GroupedTilePanel");
             TileHost.GroupStyle.Add((GroupStyle)FindResource("GenreGroupStyle"));
-        }
-        else
-        {
-            TileHost.ItemsPanel = (ItemsPanelTemplate)FindResource("FlatTilePanel");
-        }
     }
 
     /// <summary>

@@ -10,11 +10,11 @@
         <DockPanel>
             <!-- The extension is shown, never edited. See the code-behind remarks. -->
             <TextBlock x:Name="ExtensionText" DockPanel.Dock="Right" VerticalAlignment="Center"
-                       Margin="6,0,0,0" Foreground="{StaticResource TextSecondaryBrush}" />
+                       Margin="6,0,0,0" Foreground="{DynamicResource TextSecondaryBrush}" />
             <TextBox x:Name="NameBox" />
         </DockPanel>
 
-        <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" Margin="0,8,0,0"
+        <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerBrush}" Margin="0,8,0,0"
                    TextWrapping="Wrap" Visibility="Collapsed" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">

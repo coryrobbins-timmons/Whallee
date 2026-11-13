@@ -6,21 +6,22 @@
     <UserControl.Resources>
         <conv:PathToImageConverter x:Key="PathToImage" />
 
-        <!-- Tiles, when the library is one flat list. -->
+        <!--
+            WHICH PANEL DOES WHAT, because it was backwards until 2026-11-13 and the genres sat side
+            by side as columns with their clips stacked one per line:
+              - TileHost.ItemsPanel lays out the CLIPS, inside each genre when grouped. Always a
+                WrapPanel, so clips fill the window's width and wrap.
+              - GroupStyle.Panel lays out the GENRES themselves. A vertical StackPanel, so each genre
+                is a full-width section under the one before.
+        -->
         <ItemsPanelTemplate x:Key="FlatTilePanel">
             <WrapPanel />
-        </ItemsPanelTemplate>
-
-        <!-- GROUPS stack vertically; the WrapPanel moves inside the group, below. Getting this
-             backwards lays the genres out side by side and stacks the tiles. -->
-        <ItemsPanelTemplate x:Key="GroupedTilePanel">
-            <StackPanel Orientation="Vertical" />
         </ItemsPanelTemplate>
 
         <GroupStyle x:Key="GenreGroupStyle">
             <GroupStyle.Panel>
                 <ItemsPanelTemplate>
-                    <WrapPanel />
+                    <StackPanel Orientation="Vertical" />
                 </ItemsPanelTemplate>
             </GroupStyle.Panel>
             <GroupStyle.HeaderTemplate>
@@ -30,9 +31,9 @@
                              otherwise render as a blank heading above real clips. -->
                         <TextBlock Text="{Binding Name, TargetNullValue=Ungrouped}"
                                    FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" />
+                                   Foreground="{DynamicResource TextSecondaryBrush}" />
                         <Border Height="1" Margin="0,6,0,0"
-                                Background="{StaticResource StrokeBrush}" />
+                                Background="{DynamicResource StrokeBrush}" />
                     </StackPanel>
                 </DataTemplate>
             </GroupStyle.HeaderTemplate>
@@ -51,7 +52,7 @@
 
         <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
             <TextBlock Text="Apply to" VerticalAlignment="Center" Margin="0,0,10,0"
-                       Foreground="{StaticResource TextSecondaryBrush}" />
+                       Foreground="{DynamicResource TextSecondaryBrush}" />
             <ComboBox x:Name="TargetSelector" Width="240" SelectedIndex="0" />
             <Button x:Name="AddFromFile" Content="Add from file…" Margin="20,0,0,0"
                     Click="AddFromFile_Click" />
@@ -76,8 +77,8 @@
             working" while the number is between updates.
         -->
         <Border x:Name="ImportStatus" Grid.Row="1" Visibility="Collapsed"
-                Background="{StaticResource SurfaceRaisedBrush}"
-                BorderBrush="{StaticResource StrokeBrush}"
+                Background="{DynamicResource SurfaceRaisedBrush}"
+                BorderBrush="{DynamicResource StrokeBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource CardRadius}"
                 Padding="14,10" Margin="0,0,0,16">
@@ -89,7 +90,7 @@
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
                     <TextBlock x:Name="ImportStatusText" Text="Working…"
-                               Foreground="{StaticResource TextPrimaryBrush}"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap" />
 
                     <!-- Only ever shown when reality differed from what was asked for. -->
@@ -142,7 +143,7 @@
                                     generated - the grid appears at once and fills in.
                                 -->
                                 <Border Height="135" CornerRadius="7,7,0,0"
-                                        Background="{StaticResource SurfaceOverlayBrush}">
+                                        Background="{DynamicResource SurfaceOverlayBrush}">
                                     <Border CornerRadius="7,7,0,0">
                                         <Border.Background>
                                             <ImageBrush Stretch="UniformToFill"

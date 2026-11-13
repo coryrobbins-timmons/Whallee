@@ -11,8 +11,8 @@
         </Grid.ColumnDefinitions>
         <!-- ========================= Nav rail ========================= -->
         <Border Grid.Column="0"
-                Background="{StaticResource SurfaceRaisedBrush}"
-                BorderBrush="{StaticResource StrokeBrush}"
+                Background="{DynamicResource SurfaceRaisedBrush}"
+                BorderBrush="{DynamicResource StrokeBrush}"
                 BorderThickness="0,0,1,0">
             <StackPanel>
                 <!-- The app's face. Without it the window opens cold, on a list. -->

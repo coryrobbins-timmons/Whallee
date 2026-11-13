@@ -46,5 +46,8 @@ public sealed class WhalleeConfig
     /// <summary>The day of the last shuffle, manual or daily. Null until the first one.</summary>
     public DateOnly? LastShuffleDate { get; set; }
 
+    /// <summary>Interface colours. A config written before this existed gets the defaults.</summary>
+    public AppearanceSettings Appearance { get; set; } = new();
+
     public List<DisplayAssignment> Displays { get; set; } = new();
 }

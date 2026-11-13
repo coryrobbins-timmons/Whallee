@@ -19,6 +19,16 @@
     <SolidColorBrush x:Key="StrokeBrush" Color="#2E2E2E" />
 
     <!--
+        RUNTIME-REPLACED, like every brush in this file: ThemeApplier swaps each key at the top of
+        Application.Resources from the owner's Appearance settings, which is why every reference to
+        these is a DynamicResource. The values here are the defaults and what designers see.
+
+        The window backdrop is its own key so it alone can become a gradient; cards and controls
+        stay on the solid Surface shades.
+    -->
+    <SolidColorBrush x:Key="WindowBackdropBrush" Color="#141414" />
+
+    <!--
         Primary text is very slightly warm (#F0EDE8, not #FFFFFF) so it sits with the amber rather
         than fighting it, and so a wall of video thumbnails stays the brightest thing on screen.
     -->

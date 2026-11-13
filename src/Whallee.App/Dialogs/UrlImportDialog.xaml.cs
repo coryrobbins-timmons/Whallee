@@ -29,6 +29,9 @@ public partial class UrlImportDialog : Window
 
     private readonly IReadOnlyList<string> _genres;
 
+    /// <summary>The section the clip was last imported with; "Edit…" passes it, a new import does not.</summary>
+    private readonly (TimeSpan Start, TimeSpan Length)? _prefillSection;
+
     public ImportRequest? Result { get; private set; }
 
     /// <summary>The base name to give the clip, normalised; null keeps the importer's name.</summary>
@@ -42,12 +45,19 @@ public partial class UrlImportDialog : Window
     /// </param>
     /// <param name="genres">The existing genres, offered in the Genre box.</param>
     /// <param name="prefillGenre">The genre to start on - "Edit…" passes the clip's current one.</param>
+    /// <param name="prefillSection">
+    /// The start and length to start on - "Edit…" passes the ones the clip was imported with, so
+    /// nudging a cut does not mean retyping it. Applied once the lookup says it still fits.
+    /// </param>
     public UrlImportDialog(
-        string ytDlpPath, string? prefillUrl, IReadOnlyList<string> genres, string? prefillGenre)
+        string ytDlpPath, string? prefillUrl, IReadOnlyList<string> genres, string? prefillGenre,
+        (TimeSpan Start, TimeSpan Length)? prefillSection = null)
     {
         InitializeComponent();
 
         _genres = genres;
+        _prefillSection = prefillSection;
+        if (prefillSection is { } section) StartBox.Text = Format(section.Start);
         GenreBox.ItemsSource = genres;
         GenreBox.Text = prefillGenre ?? string.Empty;
 
@@ -217,6 +227,15 @@ public partial class UrlImportDialog : Window
         {
             SectionHeader.Text = "Section to import";
             LengthBox.Text = Format(meta.Duration);
+        }
+
+        // "Edit…": the previous cut wins over the defaults above - but only while it still fits the
+        // video (one shortened since may not), so the boxes never open on a section Import refuses.
+        if (_prefillSection is { } previous &&
+            ImportPlanner.ValidateSection(previous.Start, previous.Length, meta.Duration) is null)
+        {
+            StartBox.Text = Format(previous.Start);
+            LengthBox.Text = Format(previous.Length);
         }
 
         DetailsPanel.Visibility = Visibility.Visible;

@@ -18,7 +18,7 @@
         <DockPanel x:Name="StaleToolPanel" Margin="0,10,0,0" Visibility="Collapsed">
             <Button x:Name="UpdateToolButton" DockPanel.Dock="Right" Content="Update yt-dlp"
                     Margin="8,0,0,0" VerticalAlignment="Top" />
-            <TextBlock x:Name="StaleToolText" Foreground="{StaticResource AccentBrush}"
+            <TextBlock x:Name="StaleToolText" Foreground="{DynamicResource AccentBrush}"
                        TextWrapping="Wrap" />
         </DockPanel>
 
@@ -44,7 +44,7 @@
             <TextBlock Text="Genre (optional)" FontWeight="SemiBold" Margin="0,12,0,4" />
             <ComboBox x:Name="GenreBox" IsEditable="True" />
 
-            <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" Margin="0,10,0,0"
+            <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerBrush}" Margin="0,10,0,0"
                        TextWrapping="Wrap" Visibility="Collapsed" />
         </StackPanel>
 

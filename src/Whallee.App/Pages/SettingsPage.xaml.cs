@@ -58,6 +58,11 @@ public partial class SettingsPage : UserControl
         PauseBatteryBox.Unchecked += PauseRule_Toggled;
         ApplyButton.Click += Apply_Click;
 
+        // Built once, not on every Refresh: it edits config directly and owns no pending state, so
+        // there is nothing to re-read - and rebuilding would close an open Custom panel mid-edit.
+        AppearancePanel.Build(AppearanceHost, engine.Config.Appearance, engine.SaveConfig,
+                              reporter.Report);
+
         Refresh();
     }
 
@@ -156,6 +161,10 @@ public partial class SettingsPage : UserControl
     /// </remarks>
     private Brush Secondary() =>
         TryFindResource("TextSecondaryBrush") as Brush ?? Brushes.Gray;
+
+    // NOTE: Secondary() captures the brush at build time. A colour change from Appearance therefore
+    // reaches these rows on the next Refresh (switching pages), not instantly - acceptable for grey
+    // label text, and why the Appearance controls use SetResourceReference instead.
 
     private void BuildDisplayRows()
     {

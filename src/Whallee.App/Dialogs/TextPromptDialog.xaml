@@ -9,7 +9,7 @@
 
         <TextBox x:Name="ValueBox" />
 
-        <TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" Margin="0,8,0,0"
+        <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerBrush}" Margin="0,8,0,0"
                    TextWrapping="Wrap" Visibility="Collapsed" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
