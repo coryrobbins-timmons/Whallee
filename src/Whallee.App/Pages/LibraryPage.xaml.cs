@@ -80,25 +80,14 @@ public partial class LibraryPage : UserControl
         }), handledEventsToo: true);
         TargetSelector.DropDownClosed += (_, _) => Services.DisplayHighlighter.Instance.Hide();
 
-        // NOT on hovering the CLOSED box - removed 2026-11-18 at the owner's request: the frames
-        // should appear only once the list is open. Shuffle still frames the screens it would
-        // change, since that button has no list to open.
-        ShuffleButton.MouseEnter += (_, _) => HighlightTarget();
-        ShuffleButton.MouseLeave += (_, _) => Services.DisplayHighlighter.Instance.Hide();
+        // NOT on hovering the CLOSED box, and NOT on hovering Shuffle - both removed 2026-11-18 at
+        // the owner's request: the frames appear only once the list is open.
 
         ShuffleButton.Click += Shuffle_Click;
         DailyShuffleButton.Click += DailyShuffle_Click;
         ShowDailyShuffleState();
 
         Loaded += OnLoaded;
-    }
-
-    /// <summary>Frames the display(s) the "Apply to" box currently names.</summary>
-    private void HighlightTarget()
-    {
-        var index = TargetSelector.SelectedIndex;
-        if (index >= 0 && index < _model.TargetDeviceNames.Count)
-            Services.DisplayHighlighter.Instance.Show(_model.TargetDeviceNames[index]);
     }
 
     /// <summary>
