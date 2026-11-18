@@ -172,7 +172,14 @@ public partial class SettingsPage : UserControl
 
         foreach (var row in _model.Displays)
         {
-            var grid = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+            // Transparent, not null: a Grid with no background is hit-testable only where a child
+            // draws, so the hover highlight would flicker off in the gaps between columns.
+            var grid = new Grid { Margin = new Thickness(0, 3, 0, 3), Background = Brushes.Transparent };
+
+            // Hovering the row frames that monitor on screen.
+            var deviceName = row.DeviceName;
+            grid.MouseEnter += (_, _) => DisplayHighlighter.Instance.Show(deviceName);
+            grid.MouseLeave += (_, _) => DisplayHighlighter.Instance.Hide();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });

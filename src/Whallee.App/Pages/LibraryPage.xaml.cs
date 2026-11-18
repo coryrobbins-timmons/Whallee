@@ -65,11 +65,40 @@ public partial class LibraryPage : UserControl
             catch (Exception ex) { _reporter.Report($"could not list the displays: {ex.Message}"); }
         };
 
+        // DISPLAY HIGHLIGHT. Hovering an item in the open list frames that monitor. MouseMove
+        // rather than per-item MouseEnter: the item containers are generated lazily inside the
+        // popup, but their routed events still bubble up to the ComboBox, so one handler serves all.
+        TargetSelector.AddHandler(MouseMoveEvent, new System.Windows.Input.MouseEventHandler((_, e) =>
+        {
+            if (!TargetSelector.IsDropDownOpen) return;
+            if (ItemsControl.ContainerFromElement(TargetSelector, e.OriginalSource as DependencyObject)
+                    is not ComboBoxItem container) return;
+
+            var index = TargetSelector.ItemContainerGenerator.IndexFromContainer(container);
+            if (index >= 0 && index < _model.TargetDeviceNames.Count)
+                Services.DisplayHighlighter.Instance.Show(_model.TargetDeviceNames[index]);
+        }), handledEventsToo: true);
+        TargetSelector.DropDownClosed += (_, _) => Services.DisplayHighlighter.Instance.Hide();
+
+        // NOT on hovering the CLOSED box - removed 2026-11-18 at the owner's request: the frames
+        // should appear only once the list is open. Shuffle still frames the screens it would
+        // change, since that button has no list to open.
+        ShuffleButton.MouseEnter += (_, _) => HighlightTarget();
+        ShuffleButton.MouseLeave += (_, _) => Services.DisplayHighlighter.Instance.Hide();
+
         ShuffleButton.Click += Shuffle_Click;
         DailyShuffleButton.Click += DailyShuffle_Click;
         ShowDailyShuffleState();
 
         Loaded += OnLoaded;
+    }
+
+    /// <summary>Frames the display(s) the "Apply to" box currently names.</summary>
+    private void HighlightTarget()
+    {
+        var index = TargetSelector.SelectedIndex;
+        if (index >= 0 && index < _model.TargetDeviceNames.Count)
+            Services.DisplayHighlighter.Instance.Show(_model.TargetDeviceNames[index]);
     }
 
     /// <summary>

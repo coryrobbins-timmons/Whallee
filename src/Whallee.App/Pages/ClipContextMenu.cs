@@ -84,7 +84,11 @@ internal static class ClipContextMenu
 
         var all = new MenuItem { Header = "All displays" };
         all.Click += (_, _) => actions.Apply(tile, null);
+        Highlight(all, null);
         parent.Items.Add(all);
+
+        // A click or Escape closes the submenu without a MouseLeave on the item.
+        parent.SubmenuClosed += (_, _) => Services.DisplayHighlighter.Instance.Hide();
 
         // Enumerated HERE, on open, for the reason in the class remarks.
         var displays = DisplayEnumerator.Enumerate();
@@ -98,10 +102,18 @@ internal static class ClipContextMenu
 
             var item = new MenuItem { Header = Whallee.Core.Desktop.DisplayLabel.For(deviceName, order) };
             item.Click += (_, _) => actions.Apply(tile, deviceName);
+            Highlight(item, deviceName);
             parent.Items.Add(item);
         }
 
         return parent;
+    }
+
+    /// <summary>Frames the display this item names while it is hovered. Null means every display.</summary>
+    private static void Highlight(MenuItem item, string? deviceName)
+    {
+        item.MouseEnter += (_, _) => Services.DisplayHighlighter.Instance.Show(deviceName);
+        item.MouseLeave += (_, _) => Services.DisplayHighlighter.Instance.Hide();
     }
 
     /// <summary>
